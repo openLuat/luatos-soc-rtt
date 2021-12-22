@@ -1,0 +1,12 @@
+# RT-Thread building script for bridge
+
+import os
+from building import *
+
+group = []
+cwd  = GetCurrentDir()
+
+group = group + SConscript(cwd + '/lib/SConscript')
+group = group + SConscript(cwd + '/port/SConscript')
+
+Return('group')
