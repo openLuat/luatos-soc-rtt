@@ -8,6 +8,6 @@ luatos.c
 """)
 CPPPATH = [cwd]
 
-group = DefineGroup('port', src, depend = [''], CPPPATH = CPPPATH)
+group = DefineGroup('luatos_port', src, depend = ['PKG_USING_LUATOS_SOC'], CPPPATH = CPPPATH)
 
 Return('group')

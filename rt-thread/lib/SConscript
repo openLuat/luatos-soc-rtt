@@ -47,6 +47,6 @@ if not GetDepend(['PKG_USING_U8G2']):
 
 CPPPATH = [cwd]
 
-group = DefineGroup('rtt', src, depend = [], CPPPATH = CPPPATH)
+group = DefineGroup('luatos_rtt', src, depend = ["PKG_USING_LUATOS_SOC"], CPPPATH = CPPPATH)
 
 Return('group')

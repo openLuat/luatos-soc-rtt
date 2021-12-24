@@ -43,12 +43,9 @@ LuatOS-SoC 软件包遵循 Apache-2.0 许可，详见 LICENSE 文件。
 
 ![munuconfig](docs/figures/munuconfig.png)
 
-**PKG_USING_LUATOS_SOC_LCD**
-使用LCD组件
-**PKG_USING_LUATOS_SOC_EINK**
-使用EINK墨水屏组件
-**PKG_LUATOS_SOC_LUAT_HEAP_SIZE**
-配置LUAT_HEAP大小
+* `PKG_USING_LUATOS_SOC_LCD` 使用LCD组件,依赖SPI设备
+* `PKG_USING_LUATOS_SOC_EINK` 使用EINK墨水屏组件,依赖SPI设备
+* `PKG_LUATOS_SOC_LUAT_HEAP_SIZE` 配置LUAT_HEAP大小,单位Kbyte
 
 ## 3.注意事项
 

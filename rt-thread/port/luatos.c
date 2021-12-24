@@ -24,11 +24,6 @@ static void luatos(void* param) {
 
 int rtt_luatos_init(void)
 {
-    if (dfs_mount(RT_NULL, "/", "rom", 0, &(romfs_root)) == 0){
-        rt_kprintf("ROM file system initializated!\n");
-        }else{
-            rt_kprintf("ROM file system initializate failed!\n");
-        }
 #ifdef LUAT_USE_FS_VFS
     // vfs进行必要的初始化
     luat_vfs_init(NULL);
