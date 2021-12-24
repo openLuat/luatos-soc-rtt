@@ -5,6 +5,7 @@ from building import *
 cwd = GetCurrentDir()
 src = Split("""
 luatos.c
+luatos_romfs.c
 """)
 CPPPATH = [cwd]
 
