@@ -5,13 +5,13 @@ from building import *
 cwd = GetCurrentDir()
 src = Split("""
 dfs_lfs2.c
-luat_fs.c
 luatos.c
 """)
 CPPPATH = [cwd]
 
 if GetDepend(['SOC_W60X']):
     src += ['luat_init_w60x.c']
+    src += ['luat_fs_w60x.c']
 
 group = DefineGroup('port', src, depend = [''], CPPPATH = CPPPATH)
 
