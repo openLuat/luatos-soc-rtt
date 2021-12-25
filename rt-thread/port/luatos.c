@@ -27,12 +27,19 @@ int rtt_luatos_init(void)
 {
     if (dfs_mount(RT_NULL, "/", "rom", 0, &(luatos_romfs_root)) == 0){
         rt_kprintf("ROM file system initializated!\n");
-        }else{
-            rt_kprintf("ROM file system initializate failed!\n");
-        }
+    }else{
+        rt_kprintf("ROM file system initializate failed!\n");
+    }
 #ifdef LUAT_USE_FS_VFS
     // vfs进行必要的初始化
     luat_vfs_init(NULL);
+    // luat_vfs_reg(&vfs_fs_posix);
+	// luat_fs_conf_t conf = {
+	// 	.busname = "",
+	// 	.type = "posix",
+	// 	.filesystem = "posix",
+	// 	.mount_point = "", // window环境下, 需要支持任意路径的读取,不能强制要求必须是/
+	// };
     // 先注册luadb
 	luat_vfs_reg(&vfs_fs_luadb);
     // 默认指向内部luadb

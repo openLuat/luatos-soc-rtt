@@ -6,6 +6,7 @@ cwd = GetCurrentDir()
 src = Split("""
 luatos.c
 luatos_romfs.c
+luat_fs_dfs.c
 """)
 CPPPATH = [cwd]
 
