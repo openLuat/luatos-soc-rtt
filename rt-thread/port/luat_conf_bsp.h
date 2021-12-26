@@ -4,10 +4,6 @@
 
 #define LUAT_BSP_VERSION "V0007"
 
-#define LUAT_USE_FS_VFS 1
-
-#define LUAT_USE_VFS_INLINE_LIB 1
-
 #define LUAT_MEMORY_OPT_G_FUNCS 1
 
 #endif

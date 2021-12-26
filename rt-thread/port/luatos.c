@@ -7,13 +7,8 @@
 #include "luat_base.h"
 #include "luat_fs.h"
 
-#ifdef LUAT_USE_FS_VFS
-extern const struct luat_vfs_filesystem vfs_fs_posix;
-#ifdef LUAT_USE_VFS_INLINE_LIB
 extern const char luadb_inline_sys[];
-extern const struct luat_vfs_filesystem vfs_fs_luadb;
-#endif
-#endif
+
 extern const struct romfs_dirent luatos_romfs_root;
 
 static void luatos(void* param) {
@@ -30,30 +25,8 @@ int rtt_luatos_init(void)
     }else{
         rt_kprintf("ROM file system initializate failed!\n");
     }
-#ifdef LUAT_USE_FS_VFS
-    // vfs进行必要的初始化
-    luat_vfs_init(NULL);
-    luat_vfs_reg(&vfs_fs_posix);
-	luat_fs_conf_t conf = {
-		.busname = "",
-		.type = "posix",
-		.filesystem = "posix",
-		.mount_point = "", // window环境下, 需要支持任意路径的读取,不能强制要求必须是/
-	};
-    // 先注册luadb
-	luat_vfs_reg(&vfs_fs_luadb);
-    #ifdef LUAT_USE_VFS_INLINE_LIB
-    // 默认指向内部luadb
-	luat_fs_conf_t conf2 = {
-		.busname = (char*)luadb_inline_sys,
-		.type = "luadb",
-		.filesystem = "luadb",
-		.mount_point = "/luadb/",
-	};
-    luat_fs_mount(&conf2);
-    #endif
     dfs_mount(RT_NULL, "/luadb", "luadb", 0, (const void *)luadb_inline_sys);
-#endif
+
     rt_thread_t t = rt_thread_create("luatos", luatos, RT_NULL, 8*1024, 15, 20);
     rt_thread_startup(t);
     return 0;
