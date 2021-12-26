@@ -4,7 +4,7 @@
 
 #include <rtthread.h>
 #include <rtdevice.h>
-#include <dfs_fs.h>
+#include <dfs_file.h>
 
 #define LUAT_LOG_TAG "fs"
 #include "luat_log.h"

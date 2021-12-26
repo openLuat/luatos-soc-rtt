@@ -33,15 +33,16 @@ int rtt_luatos_init(void)
 #ifdef LUAT_USE_FS_VFS
     // vfs进行必要的初始化
     luat_vfs_init(NULL);
-    // luat_vfs_reg(&vfs_fs_posix);
-	// luat_fs_conf_t conf = {
-	// 	.busname = "",
-	// 	.type = "posix",
-	// 	.filesystem = "posix",
-	// 	.mount_point = "", // window环境下, 需要支持任意路径的读取,不能强制要求必须是/
-	// };
+    luat_vfs_reg(&vfs_fs_posix);
+	luat_fs_conf_t conf = {
+		.busname = "",
+		.type = "posix",
+		.filesystem = "posix",
+		.mount_point = "", // window环境下, 需要支持任意路径的读取,不能强制要求必须是/
+	};
     // 先注册luadb
 	luat_vfs_reg(&vfs_fs_luadb);
+    #ifdef LUAT_USE_VFS_INLINE_LIB
     // 默认指向内部luadb
 	luat_fs_conf_t conf2 = {
 		.busname = (char*)luadb_inline_sys,
@@ -50,6 +51,7 @@ int rtt_luatos_init(void)
 		.mount_point = "/luadb/",
 	};
     luat_fs_mount(&conf2);
+    #endif
     dfs_mount(RT_NULL, "/luadb", "luadb", 0, (const void *)luadb_inline_sys);
 #endif
     rt_thread_t t = rt_thread_create("luatos", luatos, RT_NULL, 8*1024, 15, 20);
