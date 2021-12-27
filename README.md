@@ -47,11 +47,15 @@ LuatOS-SoC 软件包遵循 Apache-2.0 许可，详见 LICENSE 文件。
 * `PKG_USING_LUATOS_SOC_EINK` 使用EINK墨水屏组件,依赖SPI设备
 * `PKG_LUATOS_SOC_LUAT_HEAP_SIZE` 配置LUAT_HEAP大小,单位Kbyte
 
-## 3.注意事项
+## 3.使用方法
+
+
+
+## 4.注意事项
 
 报issue/提pr, 请到[luatos主库](https://gitee.com/openLuat/LuatOS)
 
-## 4.联系方式
+## 5.联系方式
 
 联系人：Dozingfiretruck
 

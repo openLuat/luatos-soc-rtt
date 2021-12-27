@@ -6,11 +6,21 @@ import os
 import struct
 from collections import namedtuple
 import io
+import shutil
+from pathlib import Path
+import platform
+
+luatromfs_path = Path(os.getcwd(), "luatromfs")
+luatromfs_luadb_path = Path(os.getcwd(), "luatromfs/luadb")
+output_file = str(Path(os.getcwd(), "luatos_romfs.c"))
+
+temp_path = Path(os.getcwd(), "_temp")
+luac_path = Path(os.getcwd(), "luac")
 
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('rootdir', type=str, help='the path to rootfs')
-parser.add_argument('output', type=argparse.FileType('wb'), nargs='?', help='output file name')
+# parser.add_argument('output', type=argparse.FileType('wb'), nargs='?', help='output file name')
 parser.add_argument('--dump', action='store_true', help='dump the fs hierarchy')
 parser.add_argument('--binary', action='store_true', help='output binary file')
 parser.add_argument('--addr', default='0', help='set the base address of the binary file, default to 0.')
@@ -245,8 +255,32 @@ def get_bin_data(tree, base_addr):
 
 if __name__ == '__main__':
     args = parser.parse_args()
-
-    os.chdir(args.rootdir)
+    
+    if platform.system() == 'Windows':
+        luac_filepath = str(Path(luac_path, "luac.exe"))
+    else:
+        luac_filepath = str(Path(luac_path, "luac"))
+    if not os.path.exists(temp_path):
+        os.makedirs(temp_path)
+    else:
+        shutil.rmtree(temp_path)
+        os.makedirs(temp_path)
+    if os.path.exists(luatromfs_path):
+        shutil.rmtree(luatromfs_path)
+    for filepath,dirnames,filenames in os.walk(args.rootdir):
+        for filename in filenames:
+            if not filename.endswith(".lua"):
+                shutil.copy(Path(filepath,filename), temp_path)
+                continue
+            if filename == 'main.lua':
+                cmd = "{0} -o \"{2}\" \"{1}\"".format(luac_filepath, str(Path(filepath,filename)), str(Path(temp_path,filename)) + "c")
+            else:
+                cmd = "{0} -s -o \"{2}\" \"{1}\"".format(luac_filepath, str(Path(filepath,filename)), str(Path(temp_path,filename)) + "c")
+            os.system(cmd)
+    shutil.copytree(temp_path, luatromfs_path)
+    os.makedirs(luatromfs_luadb_path)
+    
+    os.chdir(luatromfs_path)
 
     tree = Folder('luatos_romfs_root')
     tree.walk()
@@ -260,8 +294,7 @@ if __name__ == '__main__':
     else:
         data = get_c_data(tree).encode()
 
-    output = args.output
-    if not output:
-        output = sys.stdout
-
-    output.write(data)
+    with open(output_file, 'wb') as f:
+        f.write(data)
+        f.close()
+    shutil.rmtree(temp_path)
