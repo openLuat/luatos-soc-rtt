@@ -26,6 +26,7 @@ LuatOS-SoC
 ├───rt-thread                       // RTT对接文件
 │   ├─── lib						// RTT适配文件
 │   ├─── port						// 移植文件
+├───tools                       	// 生成文件系统工具
 ├───LICENSE                         // 软件包许可证
 ├───README.md                       // 软件包使用说明
 └───SConscript                      // RT-Thread 默认的构建脚本
@@ -49,7 +50,15 @@ LuatOS-SoC 软件包遵循 Apache-2.0 许可，详见 LICENSE 文件。
 
 ## 3.使用方法
 
+软件包获取后无法直接编译，缺少文件系统，制作很简单，一个命令就可以~
 
+使用luatos-soc-rtt\tools目录下`luat_romfs.py 脚本目录`来制作
+
+以test为例，test下放了测试脚本：`main.lua`：
+
+执行`python luat_romfs.py test `即可生成`luatos_romfs.c`
+
+将`luatos_romfs.c`放在luatos-soc-rtt\rt-thread\port下编译即可
 
 ## 4.注意事项
 
