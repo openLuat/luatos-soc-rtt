@@ -834,7 +834,6 @@ static int l_lcd_draw_str(lua_State* L) {
     int x, y;
     size_t sz;
     const uint8_t* data;
-    uint32_t color = FORE_COLOR;
     x = luaL_checkinteger(L, 1);
     y = luaL_checkinteger(L, 2);
     data = (const uint8_t*)luaL_checklstring(L, 3, &sz);

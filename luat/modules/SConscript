@@ -8,7 +8,7 @@ for p in os.listdir(cwd) :
     if p.endswith(".c"):
         src += [p]
 CPPPATH = [cwd,  cwd + "/../include",
-                 cwd + "/../packages/vsprintf",
+                #  cwd + "/../packages/vsprintf",
                  cwd + "/../packages/minmea",
                  cwd + "/../packages/lua-cjson",
                  ]
