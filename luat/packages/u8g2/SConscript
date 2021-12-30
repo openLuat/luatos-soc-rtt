@@ -4,10 +4,16 @@ cwd = GetCurrentDir()
 
 CPPPATH = [cwd]
 
-if GetDepend("PKG_USING_U8G2"):
-    group = DefineGroup('eink', ["luat_lib_disp.c", "luat_lib_u8g2.c", "u8g2_font_opposansm.c"], depend = [], CPPPATH = CPPPATH)
-else:
-    src = Glob('*.c')
-    group = DefineGroup('eink', src, depend = ['PKG_USING_LUATOS_SOC_EINK'], CPPPATH = CPPPATH)
 
+if GetDepend("PKG_USING_LUATOS_SOC_EINK") or GetDepend("PKG_USING_LUATOS_SOC_LCD"):
+    if GetDepend("PKG_USING_U8G2"):
+        group = DefineGroup('eink', ["luat_lib_disp.c", "luat_lib_u8g2.c", "u8g2_font_opposansm.c"], depend = ['PKG_USING_U8G2'], CPPPATH = CPPPATH)
+    else:
+        src = Glob('*.c')
+        group = DefineGroup('eink', src, depend = [], CPPPATH = CPPPATH)
+elif GetDepend("PKG_USING_U8G2"):
+    group = DefineGroup('u8g2', ["luat_lib_disp.c", "luat_lib_u8g2.c", "u8g2_font_opposansm.c"], depend = ['PKG_USING_U8G2'], CPPPATH = CPPPATH)
+else:
+    src = []
+    group = DefineGroup('eink', src, depend = [], CPPPATH = CPPPATH)
 Return('group')

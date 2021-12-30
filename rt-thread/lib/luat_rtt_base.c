@@ -71,7 +71,7 @@ static const luaL_Reg loadedlibs[] = {
 #ifdef RT_USING_SPI
   {"spi", luaopen_spi},                // SPI操作
 #endif
-#ifdef LUAT_USE_LCD
+#ifdef PKG_USING_LUATOS_SOC_LCD
   {"lcd",    luaopen_lcd},
 #endif
 #ifdef PKG_USING_U8G2

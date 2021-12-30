@@ -27,7 +27,7 @@ int rtt_luatos_init(void)
     }
     dfs_mount(RT_NULL, "/luadb", "luadb", 0, (const void *)luadb_inline_sys);
 
-    rt_thread_t t = rt_thread_create("luatos", luatos, RT_NULL, 8*1024, 15, 20);
+    rt_thread_t t = rt_thread_create("luatos", luatos, RT_NULL, 8*1024, 2, 5);
     rt_thread_startup(t);
     return 0;
 }
