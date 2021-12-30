@@ -39,29 +39,6 @@ int luat_spi_exist(int id) {
     return findDev(id) == RT_NULL ? 0 : 1;
 }
 
-int luat_spi_device_config(luat_spi_device_t* spi_dev) {
-    int ret = 0;
-    struct rt_spi_configuration cfg;
-
-    cfg.data_width = spi_dev->spi_config.dataw;
-    if(spi_dev->spi_config.master == 1)
-        cfg.mode |= RT_SPI_MASTER;
-    else
-        cfg.mode |= RT_SPI_SLAVE;
-    if(spi_dev->spi_config.bit_dict == 1)
-        cfg.mode |= RT_SPI_MSB;
-    else
-        cfg.mode |= RT_SPI_LSB;
-    if(spi_dev->spi_config.CPHA)
-        cfg.mode |= RT_SPI_CPHA;
-    if(spi_dev->spi_config.CPOL)
-        cfg.mode |= RT_SPI_CPOL;
-    cfg.max_hz = spi_dev->spi_config.bandrate;
-    ret = rt_spi_configure((struct rt_spi_device*)(spi_dev->user_data), &cfg);
-    return ret;
-}
-
-
 int luat_spi_device_setup(luat_spi_device_t* spi_dev) {
     char bus_name[8] = {0};
     char device_name[8] = {0};
@@ -87,7 +64,25 @@ int luat_spi_device_setup(luat_spi_device_t* spi_dev) {
     }
 
     spi_dev->user_data = spi_device;
+    spi_dev->spi_config.id=i;
     luat_spi_device[i] = spi_device;
+
+    struct rt_spi_configuration cfg;
+    cfg.data_width = spi_dev->spi_config.dataw;
+    if(spi_dev->spi_config.master == 1)
+        cfg.mode |= RT_SPI_MASTER;
+    else
+        cfg.mode |= RT_SPI_SLAVE;
+    if(spi_dev->spi_config.bit_dict == 1)
+        cfg.mode |= RT_SPI_MSB;
+    else
+        cfg.mode |= RT_SPI_LSB;
+    if(spi_dev->spi_config.CPHA)
+        cfg.mode |= RT_SPI_CPHA;
+    if(spi_dev->spi_config.CPOL)
+        cfg.mode |= RT_SPI_CPOL;
+    cfg.max_hz = spi_dev->spi_config.bandrate;
+    ret = rt_spi_configure(spi_device, &cfg);
 
     luat_gpio_mode(spi_dev->spi_config.cs, Luat_GPIO_OUTPUT, Luat_GPIO_DEFAULT, Luat_GPIO_HIGH); // CS
     return ret;
@@ -95,12 +90,13 @@ int luat_spi_device_setup(luat_spi_device_t* spi_dev) {
 
 //关闭SPI设备，成功返回0
 int luat_spi_device_close(luat_spi_device_t* spi_dev) {
+    luat_spi_device[spi_dev->spi_config.id] = NULL;
+    rt_free((struct rt_spi_device*)(spi_dev->user_data));
     return rt_spi_release((struct rt_spi_device*)(spi_dev->user_data));
 }
 
 //收发SPI数据，返回接收字节数
 int luat_spi_device_transfer(luat_spi_device_t* spi_dev, const char* send_buf, size_t send_length, char* recv_buf, size_t recv_length) {
-    luat_spi_device_config(spi_dev);
     luat_gpio_set(spi_dev->spi_config.cs, Luat_GPIO_LOW);
     int ret = rt_spi_send_then_recv((struct rt_spi_device*)(spi_dev->user_data), send_buf, send_length, recv_buf, recv_length);
     luat_gpio_set(spi_dev->spi_config.cs, Luat_GPIO_HIGH);
@@ -109,7 +105,6 @@ int luat_spi_device_transfer(luat_spi_device_t* spi_dev, const char* send_buf, s
 
 //收SPI数据，返回接收字节数
 int luat_spi_device_recv(luat_spi_device_t* spi_dev, char* recv_buf, size_t length) {
-    luat_spi_device_config(spi_dev);
     luat_gpio_set(spi_dev->spi_config.cs, Luat_GPIO_LOW);
     int ret = rt_spi_recv((struct rt_spi_device*)(spi_dev->user_data), recv_buf, length);
     luat_gpio_set(spi_dev->spi_config.cs, Luat_GPIO_HIGH);
@@ -118,7 +113,6 @@ int luat_spi_device_recv(luat_spi_device_t* spi_dev, char* recv_buf, size_t leng
 
 //发SPI数据，返回发送字节数
 int luat_spi_device_send(luat_spi_device_t* spi_dev, const char* send_buf, size_t length) {
-    luat_spi_device_config(spi_dev);
     luat_gpio_set(spi_dev->spi_config.cs, Luat_GPIO_LOW);
     int ret = rt_spi_send((struct rt_spi_device*)(spi_dev->user_data), send_buf, length);
     luat_gpio_set(spi_dev->spi_config.cs, Luat_GPIO_HIGH);
