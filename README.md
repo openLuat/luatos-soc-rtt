@@ -42,6 +42,10 @@ LuatOS-SoC 软件包遵循 Apache-2.0 许可，详见 LICENSE 文件。
 
 **LuatOS-SOC软件包相关配置选项介绍**
 
+RT-Thread online packages  --->
+	language packages  --->
+		LUATOS_SOC : Powerful embedded Lua Engine for IoT devices  --->
+
 ![munuconfig](docs/figures/munuconfig.png)
 
 * `PKG_USING_LUATOS_SOC_LCD` 使用LCD组件,依赖SPI设备
