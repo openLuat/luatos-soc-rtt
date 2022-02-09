@@ -14,7 +14,7 @@ if not GetDepend(['RT_USING_PIN']):
 if not GetDepend(['BSP_USING_ADC']):
     src.remove('luat_adc_rtt.c')
 
-if not GetDepend(['RT_USING_I2C', 'RT_USING_I2C_BITOPS']):
+if not GetDepend(['RT_USING_I2C']):
     src.remove('luat_i2c_rtt.c')
 
 if not GetDepend(['RT_USING_SPI']):
