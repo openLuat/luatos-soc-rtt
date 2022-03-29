@@ -39,14 +39,25 @@ static int l_rtos_receive(lua_State *L) {
 
 //------------------------------------------------------------------
 static int l_timer_handler(lua_State *L, void* ptr) {
+    rtos_msg_t* msg = (rtos_msg_t*)lua_topointer(L, -1);
     luat_timer_t *timer = (luat_timer_t *)ptr;
+    int timer_id = msg->arg1;
+    if (timer_id > 0) {
+        timer = luat_timer_get(timer_id);
+    }
+    else if (timer != NULL) {
+        timer_id = timer->id;
+        timer = luat_timer_get(timer_id);
+    }
+    if (timer == NULL)
+        return 0;
     // LLOGD("l_timer_handler id=%ld\n", timer->id);
     lua_pushinteger(L, MSG_TIMER);
     lua_pushinteger(L, timer->id);
     lua_pushinteger(L, timer->repeat);
     //lua_pushinteger(L, timer->timeout);
     if (timer->repeat == 0) {
-        // LLOGD("l_timer_handler stop id=%ld\n", timer->id);
+        // LLOGD("stop timer %d", timer_id);
         luat_timer_stop(timer);
         luat_heap_free(timer);
     }
@@ -73,9 +84,9 @@ static int l_rtos_timer_start(lua_State *L) {
     size_t id = (size_t)luaL_checkinteger(L, 1) / 1;
     size_t timeout = (size_t)luaL_checkinteger(L, 2);
     int repeat = (size_t)luaL_optinteger(L, 3, 0);
-    // LLOGD(("timer id=%ld\n", id);
-    // LLOGD(("timer timeout=%ld\n", timeout);
-    // LLOGD(("timer repeat=%ld\n", repeat);
+    // LLOGD("start timer id=%ld", id);
+    // LLOGD("timer timeout=%ld", timeout);
+    // LLOGD("timer repeat=%ld", repeat);
     if (timeout < 1) {
         lua_pushinteger(L, 0);
         return 1;
@@ -91,6 +102,8 @@ static int l_rtos_timer_start(lua_State *L) {
         lua_pushinteger(L, 1);
     }
     else {
+        LLOGD("start timer fail, free timer %p", timer);
+        luat_heap_free(timer);
         lua_pushinteger(L, 0);
     }
     return 1;
@@ -106,14 +119,15 @@ static int l_rtos_timer_start(lua_State *L) {
 rtos.timer_stop(id)
 */
 static int l_rtos_timer_stop(lua_State *L) {
+    int timerid = -1;
     luat_timer_t *timer = NULL;
-    if (lua_islightuserdata(L, 1)) {
-        timer = (luat_timer_t *)lua_touserdata(L, 1);
+    if (!lua_isinteger(L, 1)) {
+        return 0;
     }
-    else if (lua_isinteger(L, 1)) {
-        timer = luat_timer_get(lua_tointeger(L, 1));
-    }
+    timerid = lua_tointeger(L, 1);
+    timer = luat_timer_get(timerid);
     if (timer != NULL) {
+        // LLOGD("timer stop, free timer %d", timerid);
         luat_timer_stop(timer);
         luat_heap_free(timer);
     }
@@ -267,34 +281,34 @@ static int l_rtos_nop(lua_State *L) {
     return 0;
 }
 //------------------------------------------------------------------
-#include "rotable.h"
-static const rotable_Reg reg_rtos[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_rtos[] =
 {
-    { "timer_start" ,      l_rtos_timer_start, 0},
-    { "timer_stop",        l_rtos_timer_stop,  0},
-    { "receive",           l_rtos_receive,     0},
-    { "reboot",            l_rtos_reboot,      0},
-    { "standy",            l_rtos_standy,      0},
+    { "timer_start" ,      ROREG_FUNC(l_rtos_timer_start)},
+    { "timer_stop",        ROREG_FUNC(l_rtos_timer_stop)},
+    { "receive",           ROREG_FUNC(l_rtos_receive)},
+    { "reboot",            ROREG_FUNC(l_rtos_reboot)},
+    { "standy",            ROREG_FUNC(l_rtos_standy)},
 
-    { "buildDate",         l_rtos_build_date,  0},
-    { "bsp",               l_rtos_bsp,         0},
-    { "version",           l_rtos_version,     0},
-    { "meminfo",           l_rtos_meminfo,     0},
-    { "firmware",          l_rtos_firmware,    0},
-    { "setPaths",          l_rtos_set_paths,   0},
-    { "nop",               l_rtos_nop,   0},
+    { "buildDate",         ROREG_FUNC(l_rtos_build_date)},
+    { "bsp",               ROREG_FUNC(l_rtos_bsp)},
+    { "version",           ROREG_FUNC(l_rtos_version)},
+    { "meminfo",           ROREG_FUNC(l_rtos_meminfo)},
+    { "firmware",          ROREG_FUNC(l_rtos_firmware)},
+    { "setPaths",          ROREG_FUNC(l_rtos_set_paths)},
+    { "nop",               ROREG_FUNC(l_rtos_nop)},
 
-    { "INF_TIMEOUT",        NULL,              -1},
+    { "INF_TIMEOUT",       ROREG_INT(-1)},
 
-    { "MSG_TIMER",          NULL,              MSG_TIMER},
+    { "MSG_TIMER",         ROREG_INT(MSG_TIMER)},
     // { "MSG_GPIO",           NULL,              MSG_GPIO},
     // { "MSG_UART_RX",        NULL,              MSG_UART_RX},
     // { "MSG_UART_TXDONE",    NULL,              MSG_UART_TXDONE},
-	{ NULL,                 NULL,              0}
+	{ NULL,                {}}
 };
 
 LUAMOD_API int luaopen_rtos( lua_State *L ) {
-    luat_newlib(L, reg_rtos);
+    luat_newlib2(L, reg_rtos);
     return 1;
 }
 
