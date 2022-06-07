@@ -54,7 +54,7 @@ RT-Thread online packages  --->
 
 ## 3.使用方法
 
-软件包获取后无法直接编译，缺少文件系统，制作很简单，一个命令就可以~
+软件包获取后直接编译会使用默认lua demo，自己的lua脚本需要自己制作文件系统，制作很简单，一个命令就可以~
 
 使用luatos-soc-rtt\tools目录下`luat_romfs.py 脚本目录`来制作
 
