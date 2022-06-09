@@ -4,6 +4,7 @@
 @summary 键盘矩阵(当前仅air105支持)
 @version 1.0
 @date    2021.11.24
+@demo keyboard
 */
 
 #include "luat_base.h"
@@ -16,6 +17,21 @@
 static int l_keyboard_handler(lua_State *L, void* ptr) {
     rtos_msg_t* msg = (rtos_msg_t*)lua_topointer(L, -1);
     lua_getglobal(L, "sys_pub");
+/*
+@sys_pub keyboard
+键盘矩阵消息
+KB_INC
+@number port, keyboard id 当前固定为0, 可以无视
+@number data, keyboard 按键 需要配合init的map进行解析
+@number state, 按键状态 1 为按下, 0 为 释放
+@usage
+sys.subscribe("KB_INC", function(port, data, state)
+    -- port 当前固定为0, 可以无视
+    -- data, 需要配合init的map进行解析
+    -- state, 1 为按下, 0 为 释放
+    log.info("keyboard", port, data, state)
+end)
+*/
     lua_pushstring(L, "KB_INC");
     lua_pushinteger(L, msg->arg1);
     lua_pushinteger(L, msg->arg2);
@@ -28,7 +44,7 @@ static void l_keyboard_irq_cb(luat_keyboard_ctx_t* ctx) {
     rtos_msg_t msg = {0};
     msg.handler = l_keyboard_handler;
     msg.arg1 = ctx->port;
-    msg.arg2 = ctx->pin_data & ((ctx->state & 0x1) << 15);
+    msg.arg2 = ctx->pin_data;
     msg.ptr = (void*)ctx->state;
     luat_msgbus_put(&msg, 0);
 }
@@ -86,15 +102,15 @@ static int l_keyboard_deinit(lua_State *L) {
     return 1;
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_keyboard[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_keyboard[] =
 {
-    { "init" ,         l_keyboard_init ,0},
-    { "deinit" ,       l_keyboard_deinit,   0 },
-	{ NULL,             NULL ,        0}
+    { "init" ,         ROREG_FUNC(l_keyboard_init)},
+    { "deinit" ,       ROREG_FUNC(l_keyboard_deinit)},
+	{ NULL,            ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_keyboard( lua_State *L ) {
-    luat_newlib(L, reg_keyboard);
+    luat_newlib2(L, reg_keyboard);
     return 1;
 }

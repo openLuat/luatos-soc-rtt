@@ -3,6 +3,7 @@
 @summary watchdog操作库
 @version 1.0
 @date    2021.08.06
+@demo wdt
 */
 #include "luat_base.h"
 #include "luat_wdt.h"
@@ -71,17 +72,17 @@ static int l_wdt_close(lua_State *L) {
     return 1;
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_wdt[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_wdt[] =
 {
-    { "init", l_wdt_init, 0},
-    { "setTimeout", l_wdt_set_timeout, 0},
-    { "feed", l_wdt_feed, 0},
-    { "close", l_wdt_close, 0},
-	{ NULL, NULL , 0}
+    { "init",       ROREG_FUNC(l_wdt_init)},
+    { "setTimeout", ROREG_FUNC(l_wdt_set_timeout)},
+    { "feed",       ROREG_FUNC(l_wdt_feed)},
+    { "close",      ROREG_FUNC(l_wdt_close)},
+	{ NULL,         ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_wdt( lua_State *L ) {
-    luat_newlib(L, reg_wdt);
+    luat_newlib2(L, reg_wdt);
     return 1;
 }

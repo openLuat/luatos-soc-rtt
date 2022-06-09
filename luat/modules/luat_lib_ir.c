@@ -4,6 +4,7 @@
 @summary 红外遥控
 @version 1.0
 @date    2021.10.26
+@demo ir
 */
 #include "luat_base.h"
 #include "luat_gpio.h"
@@ -153,14 +154,14 @@ static int l_ir_send_nec(lua_State *L) {
 }
 
 
-#include "rotable.h"
-static const rotable_Reg reg_ir[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_ir[] =
 {
-    { "sendNEC" ,    l_ir_send_nec , 0},
-	{ NULL,          NULL ,          0}
+    { "sendNEC" ,    ROREG_FUNC(l_ir_send_nec)},
+	{ NULL,          ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_ir( lua_State *L ) {
-    luat_newlib(L, reg_ir);
+    luat_newlib2(L, reg_ir);
     return 1;
 }

@@ -5,6 +5,8 @@
 @catalog 外设API
 @version 1.0
 @date    2020.03.30
+@demo gpio
+@video https://www.bilibili.com/video/BV1hr4y1p7dt
 */
 #include "luat_base.h"
 #include "luat_gpio.h"
@@ -16,8 +18,11 @@
 static int l_gpio_set(lua_State *L);
 static int l_gpio_get(lua_State *L);
 static int l_gpio_close(lua_State *L);
-
+#ifdef LUAT_GPIO_NUMS
+#define GPIO_IRQ_COUNT LUAT_GPIO_NUMS
+#else
 #define GPIO_IRQ_COUNT 16
+#endif
 typedef struct luat_lib_gpio_cb
 {
     int pin;
@@ -27,6 +32,31 @@ typedef struct luat_lib_gpio_cb
 // 保存中断回调的数组
 static luat_lib_gpio_cb_t irq_cbs[GPIO_IRQ_COUNT];
 static uint8_t default_gpio_pull = Luat_GPIO_DEFAULT;
+
+
+// 记录GPIO电平,仅OUTPUT时可用
+#define PIN_MAX (128)
+static uint8_t gpio_out_levels[PIN_MAX / 8] = {0};
+
+static uint8_t gpio_bit_get(int pin) {
+    if (pin < 0 || pin >= PIN_MAX)
+        return 0;
+    return (gpio_out_levels[pin/8] >> (pin%8)) & 0x01;
+}
+
+static void gpio_bit_set(int pin, uint8_t value) {
+    if (pin < 0 || pin >= PIN_MAX)
+        return;
+    uint8_t val = (gpio_out_levels[pin/8] >> (pin%8)) & 0x01;
+    if (val == value)
+        return; // 不变呀
+    if (value == 0) {
+        gpio_out_levels[pin/8] -= (1 << (pin%8));
+    }
+    else {
+        gpio_out_levels[pin/8] += (1 << (pin%8));
+    }
+}
 
 int l_gpio_handler(lua_State *L, void* ptr) {
     // 给 sys.publish方法发送数据
@@ -57,10 +87,8 @@ int l_gpio_handler(lua_State *L, void* ptr) {
 @usage
 -- 设置gpio17为输入
 gpio.setup(17, nil)
-@usage
 -- 设置gpio17为输出
 gpio.setup(17, 0)
-@usage
 -- 设置gpio27为中断
 gpio.setup(27, function(val) print("IRQ_27",val) end, gpio.PULLUP)
 */
@@ -84,6 +112,7 @@ static int l_gpio_setup(lua_State *L) {
         conf.mode = Luat_GPIO_INPUT;
     }
     conf.pull = luaL_optinteger(L, 3, default_gpio_pull);
+    conf.irq_cb = 0;
     int re = luat_gpio_setup(&conf);
     if (re == 0) {
         if (conf.mode == Luat_GPIO_IRQ) {
@@ -139,10 +168,18 @@ static int l_gpio_setup(lua_State *L) {
 gpio.set(17, 0)
 */
 static int l_gpio_set(lua_State *L) {
-    if (lua_isinteger(L, lua_upvalueindex(1)))
-        luat_gpio_set(lua_tointeger(L, lua_upvalueindex(1)), luaL_checkinteger(L, 1));
-    else
-        luat_gpio_set(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2));
+    int pin = 0;
+    int value = 0;
+    if (lua_isinteger(L, lua_upvalueindex(1))) {
+        pin = lua_tointeger(L, lua_upvalueindex(1));
+        value = luaL_checkinteger(L, 1);
+    }
+    else {
+        pin = luaL_checkinteger(L, 1);
+        value = luaL_checkinteger(L, 2);
+    }
+    luat_gpio_set(pin, value);
+    gpio_bit_set(pin, (uint8_t)value);
     return 0;
 }
 
@@ -208,29 +245,105 @@ static int l_gpio_set_default_pull(lua_State *L) {
     return 1;
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_gpio[] =
+/*
+变换GPIO脚输出电平,仅输出模式可用
+@api gpio.toggle(pin)
+@int 管脚的GPIO0AB4276E.png
+@return nil 无返回值
+@usage
+-- 本API于 2022.05.17 添加
+-- 假设GPIO16上有LED, 每500ms切换一次开关
+gpio.setup(16, 0)
+sys.timerLoopStart(function()
+    gpio.toggle(16)
+end, 500)
+*/
+static int l_gpio_toggle(lua_State *L) {
+    int pin = 0;
+    if (lua_isinteger(L, lua_upvalueindex(1)))
+        pin = lua_tointeger(L, lua_upvalueindex(1));
+    else
+        pin = luaL_checkinteger(L, 1);
+    if (pin < 0 || pin >= PIN_MAX) {
+        LLOGD("pin id out of range (0-127)");
+        return 0;
+    }
+    uint8_t value = gpio_bit_get(pin);
+    luat_gpio_set(pin, value == 0 ? Luat_GPIO_HIGH : Luat_GPIO_LOW);
+    gpio_bit_set(pin, value == 0 ? 1 : 0);
+    return 0;
+}
+
+/*
+在同一个GPIO输出一组脉冲, 注意, len的单位是bit, 高位在前.
+@api gpio.pulse(pin,level,len,delay)
+@int gpio号
+@int/string 数值或者字符串. 
+@int len 长度 单位是bit, 高位在前.
+@int delay 延迟,当前无固定时间单位
+@return nil 无返回值
+@usage
+-- 通过PB06脚输出输出8个电平变化.
+gpio.pulse(pin.PB06,0xA9, 8, 0)
+*/
+static int l_gpio_pulse(lua_State *L) {
+    int pin,delay = 0;
+    size_t len;
+    char* level = NULL;
+    if (lua_isinteger(L, lua_upvalueindex(1))){
+        pin = lua_tointeger(L, lua_upvalueindex(1));
+        if (lua_isinteger(L, 1)){
+            *level = (char)luaL_checkinteger(L, 1);
+        }else if (lua_isstring(L, 1)){
+            level = (char*)luaL_checklstring(L, 1, &len);
+        }
+        len = luaL_checkinteger(L, 2);
+        delay = luaL_checkinteger(L, 3);
+    }else{
+        pin = luaL_checkinteger(L, 1);
+        if (lua_isinteger(L, 2)){
+            *level = (char)luaL_checkinteger(L, 2);
+        }else if (lua_isstring(L, 2)){
+            level = (char*)luaL_checklstring(L, 2, &len);
+        }
+        len = luaL_checkinteger(L, 3);
+        delay = luaL_checkinteger(L, 4);
+    }
+    if (pin < 0 || pin >= PIN_MAX) {
+        LLOGD("pin id out of range (0-127)");
+        return 0;
+    }
+    luat_gpio_pulse(pin,(uint8_t*)level,len,delay);
+    return 0;
+}
+
+#include "rotable2.h"
+static const rotable_Reg_t reg_gpio[] =
 {
-    { "setup" ,         l_gpio_setup ,0},
-    { "set" ,           l_gpio_set,   0},
-    { "get" ,           l_gpio_get,   0 },
-    { "close" ,         l_gpio_close, 0 },
-    { "setDefaultPull", l_gpio_set_default_pull, 0},
+    { "setup" ,         ROREG_FUNC(l_gpio_setup )},
+    { "set" ,           ROREG_FUNC(l_gpio_set)},
+    { "get" ,           ROREG_FUNC(l_gpio_get)},
+    { "close" ,         ROREG_FUNC(l_gpio_close)},
+    { "toggle",         ROREG_FUNC(l_gpio_toggle)},
+    { "setDefaultPull", ROREG_FUNC(l_gpio_set_default_pull)},
+#ifndef LUAT_COMPILER_NOWEAK
+    { "pulse",          ROREG_FUNC(l_gpio_pulse)},
+#endif
 
-    { "LOW",            NULL,         Luat_GPIO_LOW},
-    { "HIGH",           NULL,         Luat_GPIO_HIGH},
+    { "LOW",            ROREG_INT(Luat_GPIO_LOW)},
+    { "HIGH",           ROREG_INT(Luat_GPIO_HIGH)},
 
-    { "OUTPUT",         NULL,         Luat_GPIO_OUTPUT},
-    { "INPUT",          NULL,         Luat_GPIO_INPUT},
-    { "IRQ",            NULL,         Luat_GPIO_IRQ},
+    { "OUTPUT",         ROREG_INT(Luat_GPIO_OUTPUT)},
+    { "INPUT",          ROREG_INT(Luat_GPIO_INPUT)},
+    { "IRQ",            ROREG_INT(Luat_GPIO_IRQ)},
 
-    { "PULLUP",         NULL,         Luat_GPIO_PULLUP},
-    { "PULLDOWN",       NULL,         Luat_GPIO_PULLDOWN},
+    { "PULLUP",         ROREG_INT(Luat_GPIO_PULLUP)},
+    { "PULLDOWN",       ROREG_INT(Luat_GPIO_PULLDOWN)},
 
-    { "RISING",         NULL,         Luat_GPIO_RISING},
-    { "FALLING",        NULL,         Luat_GPIO_FALLING},
-    { "BOTH",           NULL,         Luat_GPIO_BOTH},
-	{ NULL,             NULL ,        0}
+    { "RISING",         ROREG_INT(Luat_GPIO_RISING)},
+    { "FALLING",        ROREG_INT(Luat_GPIO_FALLING)},
+    { "BOTH",           ROREG_INT(Luat_GPIO_BOTH)},
+	{ NULL,             ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_gpio( lua_State *L ) {
@@ -238,20 +351,28 @@ LUAMOD_API int luaopen_gpio( lua_State *L ) {
     for (size_t i = 0; i < GPIO_IRQ_COUNT; i++) {
         irq_cbs[i].pin = -1;
     }
-    luat_newlib(L, reg_gpio);
+    luat_newlib2(L, reg_gpio);
     return 1;
 }
 
 // -------------------- 一些辅助函数
 
 void luat_gpio_mode(int pin, int mode, int pull, int initOutput) {
+    if (pin == 255) return;
     luat_gpio_t conf = {0};
     conf.pin = pin;
     conf.mode = mode == Luat_GPIO_INPUT ? Luat_GPIO_INPUT : Luat_GPIO_OUTPUT; // 只能是输入/输出, 不能是中断.
     conf.pull = pull;
     conf.irq = initOutput;
     conf.lua_ref = 0;
+    conf.irq_cb = 0;
     luat_gpio_setup(&conf);
     if (conf.mode == Luat_GPIO_OUTPUT)
         luat_gpio_set(pin, initOutput);
 }
+
+#ifndef LUAT_COMPILER_NOWEAK
+void LUAT_WEAK luat_gpio_pulse(int pin, uint8_t *level, uint16_t len, uint16_t delay_ns) {
+
+}
+#endif

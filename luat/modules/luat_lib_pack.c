@@ -3,6 +3,7 @@
 @summary 打包和解包格式串
 @version 1.0
 @date    2021.12.20
+@video https://www.bilibili.com/video/BV1Sr4y1n7bP
 */
 
 #define	OP_ZSTRING	      'z'		/* zero-terminated string */
@@ -88,7 +89,22 @@ static void doswap(int swap, void *p, size_t n)
     memcpy(&a,s+i,m);			\
     i+=m;				\
     doswap(swap,&a,m);			\
-    lua_pushinteger(L,(lua_Number)a);	\
+    lua_pushinteger(L,(lua_Integer)a);	\
+    ++n;				\
+    break;				\
+   }
+
+#define UNPACKINT8(OP,T)		\
+   case OP:				\
+   {					\
+    T a;				\
+    int m=sizeof(a);			\
+    if (i+m>len) goto done;		\
+    memcpy(&a,s+i,m);			\
+    i+=m;				\
+    doswap(swap,&a,m);			\
+    int t = (a & 0x80)?(0xffffff00+a):a;\
+    lua_pushinteger(L,(lua_Integer)t);	\
     ++n;				\
     break;				\
    }
@@ -177,7 +193,7 @@ static int l_unpack(lua_State *L)
    UNPACKNUMBER(OP_DOUBLE, double)
    UNPACKNUMBER(OP_FLOAT, float)
 #endif   
-   UNPACKINT(OP_CHAR, char)
+   UNPACKINT8(OP_CHAR, char)
    UNPACKINT(OP_BYTE, unsigned char)
    UNPACKINT(OP_SHORT, short)
    UNPACKINT(OP_USHORT, unsigned short)
@@ -310,15 +326,15 @@ int luat_unpack(lua_State *L) {
    return l_unpack(L);
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_pack[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_pack[] =
 {
-	{"pack",	l_pack, 0},
-	{"unpack",	l_unpack, 0},
-	{NULL,	NULL, 0}
+	{"pack",	   ROREG_FUNC(l_pack)},
+	{"unpack",	ROREG_FUNC(l_unpack)},
+	{NULL,	   ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_pack( lua_State *L ) {
-    luat_newlib(L, reg_pack);
+    luat_newlib2(L, reg_pack);
     return 1;
 }

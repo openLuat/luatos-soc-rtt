@@ -476,6 +476,7 @@ int l_str_toBase64(lua_State *L) {
   lua_pushstring(L, "");
   return 1;
 }
+
 /*
 将字符串进行base64解码
 @api string.fromBase64(str)
@@ -500,4 +501,270 @@ int l_str_fromBase64(lua_State *L) {
   // 编码失败,返回空字符串, 可能性应该是0吧
   lua_pushstring(L, "");
   return 1;
+}
+
+////////////////////////////////////////////
+////                 BASE32            /////
+////////////////////////////////////////////
+// Copyright 2010 Google Inc.
+// Author: Markus Gutschke
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+int luat_str_base32_decode(const uint8_t *encoded, uint8_t *result, int bufSize) {
+  int buffer = 0;
+  int bitsLeft = 0;
+  int count = 0;
+  for (const uint8_t *ptr = encoded; count < bufSize && *ptr; ++ptr) {
+    uint8_t ch = *ptr;
+    if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '-') {
+      continue;
+    }
+    buffer <<= 5;
+
+    // Deal with commonly mistyped characters
+    if (ch == '0') {
+      ch = 'O';
+    } else if (ch == '1') {
+      ch = 'L';
+    } else if (ch == '8') {
+      ch = 'B';
+    }
+
+    // Look up one base32 digit
+    if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) {
+      ch = (ch & 0x1F) - 1;
+    } else if (ch >= '2' && ch <= '7') {
+      ch -= '2' - 26;
+    } else {
+      return -1;
+    }
+
+    buffer |= ch;
+    bitsLeft += 5;
+    if (bitsLeft >= 8) {
+      result[count++] = buffer >> (bitsLeft - 8);
+      bitsLeft -= 8;
+    }
+  }
+  if (count < bufSize) {
+    result[count] = '\000';
+  }
+  return count;
+}
+
+int luat_str_base32_encode(const uint8_t *data, int length, uint8_t *result,
+                  int bufSize) {
+  if (length < 0 || length > (1 << 28)) {
+    return -1;
+  }
+  int count = 0;
+  if (length > 0) {
+    int buffer = data[0];
+    int next = 1;
+    int bitsLeft = 8;
+    while (count < bufSize && (bitsLeft > 0 || next < length)) {
+      if (bitsLeft < 5) {
+        if (next < length) {
+          buffer <<= 8;
+          buffer |= data[next++] & 0xFF;
+          bitsLeft += 8;
+        } else {
+          int pad = 5 - bitsLeft;
+          buffer <<= pad;
+          bitsLeft += pad;
+        }
+      }
+      int index = 0x1F & (buffer >> (bitsLeft - 5));
+      bitsLeft -= 5;
+      result[count++] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"[index];
+    }
+  }
+  if (count < bufSize) {
+    result[count] = '\000';
+  }
+  return count;
+}
+
+/*
+将字符串进行base32编码
+@api string.toBase32(str)
+@string 需要转换的字符串
+@return string 解码后的字符串,如果解码失败会返回0长度字符串
+*/
+int l_str_toBase32(lua_State *L) {
+  size_t len = 0;
+  const char* str = luaL_checklstring(L, 1, &len);
+  if (len == 0) {
+    lua_pushstring(L, "");
+    return 1;
+  }
+  luaL_Buffer buff = {0};
+  luaL_buffinitsize(L, &buff, len * 2);
+  int rl = luat_str_base32_encode((const uint8_t * )str,len,(uint8_t *)buff.b,buff.size);
+  luaL_pushresultsize(&buff, rl);
+  return 1;
+}
+
+/*
+将字符串进行base32解码
+@api string.fromBase32(str)
+@string 需要转换的字符串
+@return string 解码后的字符串,如果解码失败会返回0长度字符串
+*/
+int l_str_fromBase32(lua_State *L) {
+  size_t len = 0;
+  const char* str = luaL_checklstring(L, 1, &len);
+  if (len == 0) {
+    lua_pushstring(L, "");
+    return 1;
+  }
+  luaL_Buffer buff = {0};
+  luaL_buffinitsize(L, &buff, len + 1);
+  int rl = luat_str_base32_decode((const uint8_t * )str,(uint8_t *)buff.b,buff.size);
+  luaL_pushresultsize(&buff, rl);
+  return 1;
+}
+
+/*
+判断字符串前缀
+@api string.startsWith(str, prefix)
+@string 需要检查的字符串
+@string 前缀字符串
+@return bool 真为true, 假为false
+@usage
+local str = "abc"
+log.info("str", str:startsWith("a"))
+log.info("str", str:startsWith("b"))
+*/
+int l_str_startsWith(lua_State *L) {
+  size_t str_len = 0;
+  size_t prefix_len = 0;
+  const char* str = luaL_checklstring(L, 1, &str_len);
+  const char* prefix = luaL_checklstring(L, 2, &prefix_len);
+
+  if (str_len < prefix_len) {
+    lua_pushboolean(L, 0);
+  }
+  else if (memcmp(str, prefix, prefix_len) == 0) {
+    lua_pushboolean(L, 1);
+  }
+  else {
+    lua_pushboolean(L, 0);
+  }
+  return 1;
+}
+
+/*
+判断字符串后缀
+@api string.endsWith(str, suffix)
+@string 需要检查的字符串
+@string 后缀字符串
+@return bool 真为true, 假为false
+@usage
+local str = "abc"
+log.info("str", str:endsWith("c"))
+log.info("str", str:endsWith("b"))
+*/
+int l_str_endsWith(lua_State *L) {
+  size_t str_len = 0;
+  size_t suffix_len = 0;
+  const char* str = luaL_checklstring(L, 1, &str_len);
+  const char* suffix = luaL_checklstring(L, 2, &suffix_len);
+
+  // LLOGD("%s %d : %s %d", str, str_len, suffix, suffix_len);
+
+  if (str_len < suffix_len) {
+    lua_pushboolean(L, 0);
+  }
+  else if (memcmp(str + (str_len - suffix_len), suffix, suffix_len) == 0) {
+    lua_pushboolean(L, 1);
+  }
+  else {
+    lua_pushboolean(L, 0);
+  }
+  return 1;
+}
+
+#include "lstate.h"
+
+int l_str_strs(lua_State *L) {
+  for (size_t i = 0; i < STRCACHE_N; i++)
+  {
+    TString **p = G(L)->strcache[i];
+    for (size_t j = 0; j < STRCACHE_M; j++) {
+      if (p[j]->tt == LUA_TSHRSTR)
+        LLOGD(">> %s", getstr(p[j]));
+    }
+  }
+  return 0;
+}
+
+int l_str_trim_impl(lua_State *L, int ltrim, int rtrim) {
+  size_t str_len = 0;
+  const char* str = luaL_checklstring(L, 1, &str_len);
+  if (str_len == 0) {
+    lua_pushvalue(L, 1);
+    return 1;
+  }
+  int begin = 0;
+  int end = str_len;
+  if (ltrim) {
+    for (; begin <= end; begin++)
+    {
+      //LLOGD("ltrim %02X %d %d", str[begin], begin, end);
+      if(str[begin] != ' '  && 
+         str[begin] != '\t' && 
+         str[begin] != '\n' && 
+         str[begin] != '\r')
+      {
+        break;
+      }
+    }
+  }
+  if (rtrim) {
+    for (; begin < end; end--)
+    {
+      //LLOGD("rtrim %02X %d %d", str[end], begin, end);
+      if(str[end - 1] != ' '  && 
+         str[end - 1] != '\t' &&  
+         str[end - 1] != '\n' &&  
+         str[end - 1] != '\r')
+      {
+        break;
+      }
+    }
+  }
+  if (begin == end) {
+    lua_pushliteral(L, "");
+  }
+  else {
+    lua_pushlstring(L, str + begin, end - begin);
+  }
+  return 1;
+}
+
+/*
+裁剪字符串,去除头尾的空格
+@api string.trim(str, ltrim, rtrim)
+@string 需要处理的字符串
+@bool 清理前缀,默认为true
+@bool 清理后缀,默认为true
+@return string 清理后的字符串
+@usage
+local str = "\r\nabc\r\n"
+log.info("str", string.trim(str)) -- 打印 "abc"
+log.info("str", str:trim())       -- 打印 "abc"
+log.info("str", #string.trim(str, false, true)) -- 仅裁剪后缀,所以长度是5
+*/
+int l_str_trim(lua_State *L) {
+  int ltrim = 1;
+  int rtrim = 1;
+  if (lua_isboolean(L, 2))
+    ltrim = lua_toboolean(L, 2);
+  if (lua_isboolean(L, 3))
+    rtrim = lua_toboolean(L, 3);
+
+  return l_str_trim_impl(L, ltrim, rtrim);
 }

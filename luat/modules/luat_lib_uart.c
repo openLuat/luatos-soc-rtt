@@ -3,6 +3,8 @@
 @summary 串口操作库
 @version 1.0
 @date    2020.03.30
+@demo uart
+@video https://www.bilibili.com/video/BV1er4y1p75y
 */
 #include "luat_base.h"
 #include "luat_uart.h"
@@ -69,9 +71,9 @@ int l_uart_handler(lua_State *L, void* ptr) {
 配置串口参数
 @api    uart.setup(id, baud_rate, data_bits, stop_bits, partiy, bit_order, buff_size)
 @int 串口id, uart0写0, uart1写1, 如此类推, 最大值取决于设备
-@int 波特率, 默认115200
-@int 数据位，默认为8
-@int 停止位，默认为1
+@int 波特率, 默认115200，可选择波特率表:{2000000,921600,460800,230400,115200,57600,38400,19200,9600,4800,2400}
+@int 数据位，默认为8, 可选 7/8
+@int 停止位，默认为1, 可选 0/1, 有部分特殊芯片会支持1.5,使用2代表.
 @int 校验位，可选 uart.None/uart.Even/uart.Odd
 @int 大小端，默认小端 uart.LSB, 可选 uart.MSB
 @int 缓冲区大小，默认值1024
@@ -120,7 +122,10 @@ static int l_uart_setup(lua_State *L)
 @int 可选，要发送的数据长度，默认全发
 @return int 成功的数据长度
 @usage
+-- 写入可见字符串
 uart.write(1, "rdy\r\n")
+-- 写入十六进制的数据串
+uart.write(1, string.char(0x55,0xAA,0x4B,0x03,0x86))
 */
 static int l_uart_write(lua_State *L)
 {
@@ -144,6 +149,48 @@ static int l_uart_write(lua_State *L)
             len = l;
     }
     int result = luat_uart_write(id, (char*)buf, len);
+    lua_pushinteger(L, result);
+    return 1;
+}
+
+/*
+buff形式写串口,等同于c语言uart_tx(uart_id, &buff[start], len);
+@api    uart.tx(id, buff, start, len)
+@int 串口id, uart0写0, uart1写1
+@zbuff 待写入的数据，如果是zbuff会从指针起始位置开始读
+@int 可选，要发送的数据起始位置，默认为0
+@int 可选，要发送的数据长度，默认为zbuff内有效数据，最大值不超过zbuff的最大空间
+@return int 成功的数据长度
+@usage
+uart.tx(1, buf)
+*/
+static int l_uart_tx(lua_State *L)
+{
+    size_t start, len;
+    // const char *buf;
+    luat_zbuff_t *buff;
+    uint8_t id = luaL_checkinteger(L, 1);
+    if(lua_isuserdata(L, 2))
+    {
+        buff = ((luat_zbuff_t *)luaL_checkudata(L, 2, LUAT_ZBUFF_TYPE));
+    }
+    else
+    {
+    	lua_pushinteger(L, 0);
+    	return 1;
+    }
+    start = luaL_optinteger(L, 3, 0);
+    len = luaL_optinteger(L, 4, buff->used);
+    if (start >= buff->len)
+    {
+    	lua_pushinteger(L, 0);
+    	return 1;
+    }
+    if ((start + len)>= buff->len)
+    {
+    	len = buff->len - start;
+    }
+    int result = luat_uart_write(id, buff->addr + start, len);
     lua_pushinteger(L, result);
     return 1;
 }
@@ -214,6 +261,53 @@ static int l_uart_read(lua_State *L)
 }
 
 /*
+buff形式读串口，一次读出全部数据存入buff中，如果buff空间不够会自动扩展，目前只有air105支持这个操作
+@api    uart.rx(id, buff)
+@int 串口id, uart0写0, uart1写1
+@zbuff zbuff对象
+@return int 返回读到的长度，并把zbuff指针后移
+@usage
+uart.rx(1, buff)
+*/
+static int l_uart_rx(lua_State *L)
+{
+    uint8_t id = luaL_checkinteger(L, 1);
+
+    if(lua_isuserdata(L, 2)){//zbuff对象特殊处理
+    	luat_zbuff_t *buff = ((luat_zbuff_t *)luaL_checkudata(L, 2, LUAT_ZBUFF_TYPE));
+        int result = luat_uart_read(id, NULL, 0);	//读出当前缓存的长度，目前只有105支持这个操作
+        if (result > (buff->len - buff->used))
+        {
+        	__zbuff_resize(buff, buff->len + result);
+        }
+        luat_uart_read(id, buff->addr + buff->used, result);
+        lua_pushinteger(L, result);
+        buff->used += result;
+        return 1;
+    }
+    else
+    {
+        lua_pushinteger(L, 0);
+        return 1;
+    }
+    return 1;
+}
+
+/*
+读串口Rx缓存中剩余数据量，目前只有air105支持这个操作
+@api    uart.rx_size(id)
+@int 串口id, uart0写0, uart1写1
+@return int 返回读到的长度
+@usage
+local size = uart.rx_size(1)
+*/
+static int l_uart_rx_size(lua_State *L)
+{
+    uint8_t id = luaL_checkinteger(L, 1);
+    lua_pushinteger(L, luat_uart_read(id, NULL, 0));//读出当前缓存的长度，目前只有105支持这个操作
+    return 1;
+}
+/*
 关闭串口
 @api    uart.close(id)
 @int 串口id, uart0写0, uart1写1
@@ -272,29 +366,56 @@ static int l_uart_on(lua_State *L) {
     return 0;
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_uart[] =
+
+/*
+等待485模式下TX完成，mcu不支持串口发送移位寄存器空或者类似中断时才需要，在sent事件回调后使用
+@api uart.wait485(id)
+@int 串口id, uart0写0, uart1写1
+@return int 等待了多少次循环才等到tx完成，用于粗劣的观察delay时间是否足够，返回不为0说明还需要放大delay
+ */
+static int l_uart_wait485_tx_done(lua_State *L) {
+    int uart_id = luaL_checkinteger(L, 1);
+    if (!luat_uart_exist(uart_id)) {
+    	lua_pushinteger(L, 0);
+        return 1;
+    }
+#ifdef LUAT__UART_TX_NEED_WAIT_DONE
+    lua_pushinteger(L, luat_uart_wait_485_tx_done(uart_id));
+#else
+    lua_pushinteger(L, 0);
+#endif
+    return 1;
+}
+#include "rotable2.h"
+static const rotable_Reg_t reg_uart[] =
 {
-    { "setup",  l_uart_setup,0},
-    { "close",  l_uart_close,0},
-    { "write",  l_uart_write,0},
-    { "read",   l_uart_read,0},
-    { "on",     l_uart_on, 0},
+    { "setup",      ROREG_FUNC(l_uart_setup)},
+    { "close",      ROREG_FUNC(l_uart_close)},
+    { "write",      ROREG_FUNC(l_uart_write)},
+    { "read",       ROREG_FUNC(l_uart_read)},
+    { "on",         ROREG_FUNC(l_uart_on)},
+	{ "wait485",         ROREG_FUNC(l_uart_wait485_tx_done)},
     //校验位
-    { "Odd",            NULL,           LUAT_PARITY_ODD},
-    { "Even",           NULL,           LUAT_PARITY_EVEN},
-    { "None",           NULL,           LUAT_PARITY_NONE},
-    { "ODD",            NULL,           LUAT_PARITY_ODD},
-    { "EVEN",           NULL,           LUAT_PARITY_EVEN},
-    { "NONE",           NULL,           LUAT_PARITY_NONE},
+    { "Odd",        ROREG_INT(LUAT_PARITY_ODD)},
+    { "Even",       ROREG_INT(LUAT_PARITY_EVEN)},
+    { "None",       ROREG_INT(LUAT_PARITY_NONE)},
+    { "ODD",        ROREG_INT(LUAT_PARITY_ODD)},
+    { "EVEN",       ROREG_INT(LUAT_PARITY_EVEN)},
+    { "NONE",       ROREG_INT(LUAT_PARITY_NONE)},
     //高低位顺序
-    { "LSB",            NULL,           LUAT_BIT_ORDER_LSB},
-    { "MSB",            NULL,           LUAT_BIT_ORDER_MSB},
-    { NULL,             NULL ,          0}
+    { "LSB",        ROREG_INT(LUAT_BIT_ORDER_LSB)},
+    { "MSB",        ROREG_INT(LUAT_BIT_ORDER_MSB)},
+
+    { "tx",      ROREG_FUNC(l_uart_tx)},
+    { "rx",       ROREG_FUNC(l_uart_rx)},
+	{ "rx_size",	ROREG_FUNC(l_uart_rx_size)},
+
+	{ "VUART_0",        ROREG_INT(LUAT_VUART_ID_0)},
+    { NULL,         ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_uart(lua_State *L)
 {
-    luat_newlib(L, reg_uart);
+    luat_newlib2(L, reg_uart);
     return 1;
 }

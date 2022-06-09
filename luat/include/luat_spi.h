@@ -24,6 +24,33 @@ typedef struct luat_spi_device
     void* user_data;
 } luat_spi_device_t;
 
+typedef struct luat_fatfs_spi
+{
+	uint8_t type;
+	uint8_t spi_id;
+	uint8_t spi_cs;
+	uint8_t nop;
+	uint32_t fast_speed;
+	luat_spi_device_t * spi_device;
+}luat_fatfs_spi_t;
+
+// 软件spi
+typedef struct luat_espi {
+    int cs;
+    int mosi;
+    int miso;
+    int clk;
+    int CPHA;
+    int CPOL;
+    int dataw;
+    int bit_dict;
+    int master;
+    int mode;
+} luat_espi_t;
+
+#define LUAT_ESPI_TYPE "ESPI*"
+#define toespi(L) ((luat_espi_t *)luaL_checkudata(L, 1, LUAT_ESPI_TYPE))
+
 /**
     spiId,--串口id
     cs,
@@ -39,6 +66,8 @@ typedef struct luat_spi_device
 //初始化配置SPI各项参数，并打开SPI
 //成功返回0
 int luat_spi_setup(luat_spi_t* spi);
+//收发SPI数据尝试启动DMA模式
+int luat_spi_config_dma(int spi_id, uint32_t tx_channel, uint32_t rx_channel);
 //关闭SPI，成功返回0
 int luat_spi_close(int spi_id);
 //收发SPI数据，返回接收字节数

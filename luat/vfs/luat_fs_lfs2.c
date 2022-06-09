@@ -17,27 +17,35 @@ FILE* luat_vfs_lfs2_fopen(void* userdata, const char *filename, const char *mode
     lfs_t* fs = (lfs_t*)userdata;
     lfs_file_t *file = (lfs_file_t*)luat_heap_malloc(sizeof(lfs_file_t));
     int flag = 0;
-    for (size_t i = 0; i < strlen(mode); i++)
-    {
-        char m = *(mode + i);
-        switch (m)
-        {
-        case 'r':
-            flag |= LFS_O_RDONLY;
-            break;
-        case 'w':
-            flag |= LFS_O_RDWR | LFS_O_CREAT | LFS_O_TRUNC;
-            break;
-        case 'a':
-            flag |= LFS_O_APPEND;
-            break;
-        case '+':
-            flag |= LFS_O_APPEND;
-            break;
-        
-        default:
-            break;
-        }
+/*
+"r": 读模式（默认）；
+"w": 写模式；
+"a": 追加模式；
+"r+": 更新模式，所有之前的数据都保留；
+"w+": 更新模式，所有之前的数据都删除；
+"a+": 追加更新模式，所有之前的数据都保留，只允许在文件尾部做写入。
+*/
+    if (!strcmp("r+", mode) || !strcmp("r+b", mode)) {
+        flag = LFS_O_RDWR | LFS_O_CREAT;
+    }
+    else if(!strcmp("w+", mode) || !strcmp("w+b", mode)) {
+        flag = LFS_O_RDWR | LFS_O_CREAT | LFS_O_TRUNC;
+    }
+    else if(!strcmp("a+", mode) || !strcmp("a+b", mode)) {
+        flag = LFS_O_APPEND | LFS_O_CREAT;
+    }
+    else if(!strcmp("w", mode) || !strcmp("wb", mode)) {
+        flag = LFS_O_RDWR | LFS_O_CREAT | LFS_O_TRUNC;
+    }
+    else if(!strcmp("r", mode) || !strcmp("rb", mode)) {
+        flag = LFS_O_RDONLY;
+    }
+    else if(!strcmp("a", mode) || !strcmp("ab", mode)) {
+        flag = LFS_O_APPEND | LFS_O_CREAT;
+    }
+    else {
+        LLOGW("bad file open mode %s, fallback to 'r'", mode);
+        flag = LFS_O_RDONLY;
     }
     int ret = lfs_file_open(fs, file, filename, flag);
     if (ret < 0) {
@@ -138,7 +146,17 @@ size_t luat_vfs_lfs2_fsize(void* userdata, const char *filename) {
 }
 
 int luat_vfs_lfs2_mkfs(void* userdata, luat_fs_conf_t *conf) {
-    LLOGE("not support yet : mkfs");
+    int ret = 0;
+    lfs_t* fs = (lfs_t*)userdata;
+    if (fs != NULL && fs->cfg != NULL) {
+        ret = lfs_format(fs, fs->cfg);
+        // LLOGD("lfs2 format ret %d", ret);
+        if (ret < 0)
+            return ret;
+        ret = lfs_mount(fs, fs->cfg);
+        // LLOGD("lfs2 mount ret %d", ret);
+        return ret;
+    }
     return -1;
 }
 
@@ -158,6 +176,62 @@ int luat_vfs_lfs2_mkdir(void* userdata, char const* _DirName) {
 
 int luat_vfs_lfs2_rmdir(void* userdata, char const* _DirName) {
     return -1;
+}
+
+int luat_vfs_lfs2_lsdir(void* userdata, char const* _DirName, luat_fs_dirent_t* ents, size_t offset, size_t len) {
+    lfs_t* fs = (lfs_t*)userdata;
+    int ret , num = 0;
+    lfs_dir_t *dir;
+    struct lfs_info info;
+    // if (fs->filecount > offset) {
+        // if (offset + len > fs->filecount)
+            // len = fs->filecount - offset;
+        dir = luat_heap_malloc(sizeof(lfs_dir_t));
+        if (dir == NULL) {
+            // LLOGE("out of memory when lsdir");
+            return 0;
+        }
+        ret = lfs_dir_open(fs, dir, _DirName);
+        if (ret < 0) {
+            luat_heap_free(dir);
+            // LLOGE("no such dir %s _DirName");
+            return 0;
+        }
+
+        // TODO 使用seek/tell组合更快更省
+        for (size_t i = 0; i < offset; i++)
+        {
+            ret = lfs_dir_read(fs, dir, &info);
+            if (ret <= 0) {
+                lfs_dir_close(fs, dir);
+                luat_heap_free(dir);
+                return 0;
+            }
+        }
+
+        for (size_t i = 0; i < len; i++)
+        {
+            ret = lfs_dir_read(fs, dir, &info);
+            if (ret < 0) {
+                lfs_dir_close(fs, dir);
+                luat_heap_free(dir);
+                return 0;
+            }
+            if (ret == 0) {
+                len = i;
+                break;
+            }
+            if (info.type == 2 && (memcmp(info.name, ".", 2) !=0 ||memcmp(info.name, "..", 3)!=0))
+                continue;
+            ents[num].d_type = info.type - 1; // lfs file =1, dir=2
+            strcpy(ents[num].d_name, info.name);
+            num++;
+        }
+        lfs_dir_close(fs, dir);
+        luat_heap_free(dir);
+        return num;
+    // }
+    return 0;
 }
 
 int luat_vfs_lfs2_info(void* userdata, const char* path, luat_fs_info_t *conf) {
@@ -180,6 +254,7 @@ const struct luat_vfs_filesystem vfs_fs_lfs2 = {
         T(umount),
         T(mkdir),
         T(rmdir),
+        T(lsdir),
         T(remove),
         T(rename),
         T(fsize),

@@ -3,6 +3,7 @@
 @summary PWM模块
 @version 1.0
 @date    2020.07.03
+@demo pwm
 */
 #include "luat_base.h"
 #include "luat_pwm.h"
@@ -13,7 +14,7 @@
 @int PWM通道
 @int 频率, 1-1000000hz
 @int 占空比 0-分频精度
-@int 输出周期 0为持续输出, 1为单次输出
+@int 输出周期 0为持续输出, 1为单次输出, 其他为指定脉冲数输出
 @int 分频精度, 100/256/1000, 默认为100, 若设备不支持会有日志提示
 @return boolean 处理结果,成功返回true,失败返回false
 @usage
@@ -63,8 +64,13 @@ PWM捕获
 @return boolean 处理结果,成功返回true,失败返回false
 @usage
 -- PWM0捕获
-log.info("pwm.get(0)",pwm.capture(0,1000))
-log.info("PWM_CAPTURE",sys.waitUntil("PWM_CAPTURE", 2000))
+while 1 do
+    pwm.capture(0,1000)
+    local ret,channel,pulse,pwmH,pwmL  = sys.waitUntil("PWM_CAPTURE", 2000)
+    if ret then
+        log.info("PWM_CAPTURE","channel"..channel,"pulse"..pulse,"pwmH"..pwmH,"pwmL"..pwmL)
+    end
+end
  */
 static int l_pwm_capture(lua_State *L) {
     int ret = luat_pwm_capture(luaL_checkinteger(L, 1),luaL_checkinteger(L, 2));
@@ -72,16 +78,16 @@ static int l_pwm_capture(lua_State *L) {
     return 1;
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_pwm[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_pwm[] =
 {
-    { "open" ,       l_pwm_open , 0},
-    { "close" ,      l_pwm_close, 0},
-    { "capture" ,      l_pwm_capture, 0},
-	{ NULL,          NULL ,       0}
+    { "open" ,       ROREG_FUNC(l_pwm_open )},
+    { "close" ,      ROREG_FUNC(l_pwm_close)},
+    { "capture" ,    ROREG_FUNC(l_pwm_capture)},
+	{ NULL,          ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_pwm( lua_State *L ) {
-    luat_newlib(L, reg_pwm);
+    luat_newlib2(L, reg_pwm);
     return 1;
 }

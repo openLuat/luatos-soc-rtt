@@ -7,6 +7,7 @@
 
 #include "luat_base.h"
 #include "luat_pin.h"
+#include <stdlib.h>
 
 #define LUAT_LOG_TAG "pin"
 #include "luat_log.h"
@@ -66,15 +67,15 @@ int luat_pin_parse(const char* pin_name, size_t* zone, size_t* index) {
     return 0;
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_pin[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_pin[] =
 {
-    {"__index", luat_pin_index, 0},
-    {"get", luat_pin_index, 0},
-	{ NULL, NULL , 0}
+    {"__index", ROREG_FUNC(luat_pin_index)},
+    {"get",     ROREG_FUNC(luat_pin_index)},
+	{ NULL,     ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_pin( lua_State *L ) {
-    luat_newlib(L, reg_pin);
+    luat_newlib2(L, reg_pin);
     return 1;
 }

@@ -1,6 +1,7 @@
 
 #include "luat_base.h"
 #include "luat_timer.h"
+#include "luat_malloc.h"
 #include "luat_dbg.h"
 #include "luat_cmux.h"
 #include "luat_conf_bsp.h"
@@ -11,8 +12,8 @@
 #include "cJSON.h"
 #endif
 
-extern uint8_t cmux_state;
-extern uint8_t cmux_dbg_state;
+extern luat_cmux_t cmux_ctx;
+
 /**
  * 0 , disabled
  * 1 , wait for connect
@@ -48,7 +49,7 @@ void luat_dbg_output(const char* _fmt, ...) {
     va_end(args);
     if (len > 0) {
 #ifdef LUAT_USE_SHELL
-        if (cmux_state == 1 && cmux_dbg_state ==1){
+        if (cmux_ctx.state == 1 && cmux_ctx.dbg_state ==1){
             luat_cmux_write(LUAT_CMUX_CH_DBG,  CMUX_FRAME_UIH & ~ CMUX_CONTROL_PF,dbg_printf_buff, len);
         }else
 #endif
@@ -196,17 +197,17 @@ static int value_to_dbg_json(lua_State* L, const char* name, char** buff, size_t
     switch (ltype)
     {
     case LUA_TNIL:
-        cJSON_AddNullToObject(cj, "value");
+        cJSON_AddNullToObject(cj, "data");
         break;
     case LUA_TBOOLEAN:
-        cJSON_AddBoolToObject(cj, "value", lua_toboolean(L, -1));
+        cJSON_AddBoolToObject(cj, "data", lua_toboolean(L, -1));
         break;
     case LUA_TNUMBER:
-        cJSON_AddNumberToObject(cj, "value", lua_tonumber(L, -1));
+        cJSON_AddStringToObject(cj, "data", lua_tostring(L, -1));
         break;
     case LUA_TTABLE:
         // TODO 递归之
-        cJSON_AddStringToObject(cj, "value", lua_tostring(L, -1));
+        cJSON_AddStringToObject(cj, "data", lua_tostring(L, -1));
         break;
     case LUA_TSTRING:
     case LUA_TLIGHTUSERDATA:
@@ -214,7 +215,7 @@ static int value_to_dbg_json(lua_State* L, const char* name, char** buff, size_t
     case LUA_TFUNCTION:
     case LUA_TTHREAD:
     default:
-        cJSON_AddStringToObject(cj, "value", lua_tostring(L, -1));
+        cJSON_AddStringToObject(cj, "data", lua_tostring(L, -1));
         break;
     }
     char* str = cJSON_Print(cj);
@@ -246,12 +247,16 @@ void luat_dbg_vars(void *params) {
         while (1) {
             const char* varname = lua_getlocal(dbg_L, dbg_ar, index);
             if (varname) {
+                if(strcmp(varname,"(*temporary)") == 0)
+                {
+                    break;
+                }
                 ret = value_to_dbg_json(dbg_L, varname, &buff, &valstrlen, 10);
                 // 索引号,变量名,变量类型,值的字符串长度, 值的字符串形式
                 // TODO LuatIDE把这里改成了json输出, 需要改造一下
                 // 构建个table,然后json.encode?
-                if (ret == 0)
-                    luat_dbg_output("D/dbg [resp,vars,%d]\r\n%s\r\n", valstrlen, buff);
+                if (ret == 0 && (strcmp(buff,"\x0e") != 0))
+                    luat_dbg_output("D/dbg [resp,vars,%d]\r\n%s\r\n", strlen(buff), buff);
                 lua_pop(dbg_L, 1);
             }
             else {
@@ -273,12 +278,18 @@ void luat_dbg_gvars(void *params) {
     char buff[128];
     size_t len;
     const char* varname = NULL;
+    const char* vartype = NULL;
+    const char* vardata = NULL;
     while (lua_next(dbg_L, -2) != 0) {
        if (lua_isstring(dbg_L, -2)) {
            varname = luaL_checkstring(dbg_L, -2);
-           len = snprintf(buff, 127, "{\"type\":\"%s\", \"name\":\"%s\", \"data\":\"%s\"}", 
-                    lua_typename(dbg_L, lua_type(dbg_L, -1)), varname, lua_tostring(dbg_L, -1));
-           luat_dbg_output("D/dbg [resp,gvars,%d]\r\n%s\r\n", len, buff);
+           vartype = lua_typename(dbg_L, lua_type(dbg_L, -1));
+           vardata = lua_tostring(dbg_L, -1);
+           if(strcmp(vardata,"\x0e") != 0)
+            {
+                len = snprintf(buff, 127, "{\"type\":\"%s\", \"name\":\"%s\", \"data\":\"%s\"}", vartype, varname, vardata);
+                luat_dbg_output("D/dbg [resp,gvars,%d]\r\n%s\r\n", len, buff);
+            }
        }
        lua_pop(dbg_L, 1);
     }
@@ -320,6 +331,8 @@ static void luat_dbg_waitby(int origin) {
 
 // 供Lua VM调用的钩子函数
 void luat_debug_hook(lua_State *L, lua_Debug *ar) {
+    // luat_dbg_output("D/dbg [state][print] event:%d | short_src: %s | line:%d | currentState:%d | currentHookState:%d\r\n", ar->event, ar->short_src, ar->currentline, cur_hook_state, cur_hook_state);
+
     if (cur_hook_state == 0) {
         return; // hook 已经关掉了哦
     }
@@ -329,7 +342,7 @@ void luat_debug_hook(lua_State *L, lua_Debug *ar) {
 
     lua_getinfo(L, "Sl", ar);
 
-    //luat_dbg_output("D/dbg [state][print] event:%d | short_src: %s | line:%d | currentState:%d | currentHookState:%d", ar->event, ar->short_src, ar->currentline, cur_run_state, cur_hook_state);
+
 
     // 不是lua文件, 就没调试价值
     if (ar->source[0] != '@') {
@@ -358,7 +371,8 @@ void luat_debug_hook(lua_State *L, lua_Debug *ar) {
                 if (
                     strcmp(breakpoints[i].source, ar->short_src + 0) != 0 && 
                     strcmp(breakpoints[i].source, ar->short_src + 1) != 0 &&
-                    strcmp(breakpoints[i].source, ar->short_src + 2) != 0
+                    strcmp(breakpoints[i].source, ar->short_src + 2) != 0 &&
+                    strcmp(breakpoints[i].source, ar->short_src + 7) != 0
                     ) {
                     continue;
                 }
@@ -418,15 +432,15 @@ void luat_debug_hook(lua_State *L, lua_Debug *ar) {
 */
 int l_debug_wait(lua_State *L) {
     if (cur_hook_state == 0) {
-        //luat_dbg_output("setup hook for debgger");
+        // luat_dbg_output("setup hook for debgger\r\n");
         lua_sethook(L, luat_debug_hook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKLINE, 0);
         luat_dbg_set_hook_state(1);
         int timeout = luaL_optinteger(L, 1, 120) * 1000;
         int t = 0;
         while (timeout > 0 && cur_hook_state == 1) {
-            timeout -= 5;
-            luat_timer_mdelay(5);
-            if ((t*5)%1000 == 0) {
+            timeout -= 10;
+            luat_timer_mdelay(10);
+            if ((t*10)%1000 == 0) {
                 luat_dbg_output("D/dbg [event,waitc] waiting for debugger\r\n");
             }
             t++;
@@ -464,26 +478,26 @@ int luat_dbg_init(lua_State *L) {
 #ifdef LUAT_USE_SHELL
 // 供dbg_init.lua判断cmux状态
 int l_debug_cmux_state(lua_State *L) {
-    lua_pushinteger(L, cmux_state);
-    lua_pushinteger(L, cmux_dbg_state);
+    lua_pushinteger(L, cmux_ctx.state);
+    lua_pushinteger(L, cmux_ctx.dbg_state);
     return 2;
 }
 #endif
 
-#include "rotable.h"
-static const rotable_Reg reg_dbg[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_dbg[] =
 {
-	{ "wait",  l_debug_wait, 0},
-    { "close",  l_debug_close, 0},
-    { "stop",  l_debug_close, 0},
+	{ "wait",  ROREG_FUNC(l_debug_wait)},
+    { "close", ROREG_FUNC(l_debug_close)},
+    { "stop",  ROREG_FUNC(l_debug_close)},
 #ifdef LUAT_USE_SHELL
-    { "cmux_state", l_debug_cmux_state, 0},
+    { "cmux_state", ROREG_FUNC(l_debug_cmux_state)},
 #endif
-	{ NULL, NULL , 0}
+	{ NULL,     ROREG_INT(0)}
 };
 
 LUAMOD_API int luaopen_dbg( lua_State *L ) {
-    luat_newlib(L, reg_dbg);
+    luat_newlib2(L, reg_dbg);
     return 1;
 }
 

@@ -4,6 +4,7 @@
 @summary 执行http请求
 @version 1.0
 @date    2020.07.07
+@demo http
 */
 #include "luat_base.h"
 #include "luat_http.h"
@@ -274,19 +275,19 @@ static int l_http_reqcommon(lua_State *L, uint8_t method) {
     }
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_http[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_http[] =
 {
-    { "req",    l_http_req,     0},
-    { "get",    l_http_get,     0},
-    { "post",   l_http_post,    0},
-    { "put",    l_http_put,     0},
-    { "delete", l_http_delete,  0},
-	{ NULL, NULL, 0}
+    { "req",    ROREG_FUNC(l_http_req)},
+    { "get",    ROREG_FUNC(l_http_get)},
+    { "post",   ROREG_FUNC(l_http_post)},
+    { "put",    ROREG_FUNC(l_http_put)},
+    { "delete", ROREG_FUNC(l_http_delete)},
+	{ NULL,     ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_http( lua_State *L ) {
-    luat_newlib(L, reg_http);
+    luat_newlib2(L, reg_http);
     return 1;
 }
 

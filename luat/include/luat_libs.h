@@ -98,9 +98,30 @@ LUAMOD_API int luaopen_keyboard( lua_State *L );
 LUAMOD_API int luaopen_coremark( lua_State *L );
 
 LUAMOD_API int luaopen_fonts( lua_State *L );
+LUAMOD_API int luaopen_gtfont( lua_State *L );
 
 LUAMOD_API int luaopen_pin( lua_State *L );
 LUAMOD_API int luaopen_dac( lua_State *L );
 LUAMOD_API int luaopen_otp( lua_State *L );
+LUAMOD_API int luaopen_mlx90640( lua_State *L );
+LUAMOD_API int luaopen_zlib( lua_State *L );
+LUAMOD_API int luaopen_camera( lua_State *L );
+LUAMOD_API int luaopen_multimedia_audio( lua_State *L );
+LUAMOD_API int luaopen_multimedia_video( lua_State *L );
+LUAMOD_API int luaopen_multimedia_codec( lua_State *L );
+LUAMOD_API int luaopen_luf( lua_State *L );
+
+LUAMOD_API int luaopen_touchkey(lua_State *L);
+LUAMOD_API int luaopen_softkb( lua_State *L );
+LUAMOD_API int luaopen_nes( lua_State *L );
+
+LUAMOD_API int luaopen_io_queue( lua_State *L );
+LUAMOD_API int luaopen_ymodem( lua_State *L );
+LUAMOD_API int luaopen_w5500( lua_State *L );
+LUAMOD_API int luaopen_network_adapter( lua_State *L );
+
+LUAMOD_API int luaopen_airui( lua_State *L );
+LUAMOD_API int luaopen_fota( lua_State *L );
+LUAMOD_API int luaopen_i2s( lua_State *L );
 
 #endif

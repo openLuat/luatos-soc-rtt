@@ -10,8 +10,7 @@
 #undef LLOGD
 #define LLOGD(...) 
 
-extern const uint32_t luat_inline_sys_size;
-extern const char luat_inline_sys[];
+extern const luadb_file_t luat_inline2_libs[];
 
 //---
 static uint8_t readU8(const char* ptr, int *index) {
@@ -41,25 +40,44 @@ int luat_luadb_remount(luadb_fs_t *fs, unsigned flags) {
     return 0;
 }
 
-int luat_luadb_open(luadb_fs_t *fs, const char *path, int flags, int /*mode_t*/ mode) {
-    LLOGD("open luadb path = %s flags=%d", path, flags);
-    // if (flags & 0x3) { // xie 
-    //     return -1;
-    // }
+static luadb_file_t* find_by_name(luadb_fs_t *fs, const char *path) {
     for (size_t i = 0; i < fs->filecount; i++)
     {
         if (!strcmp(path, fs->files[i].name)) {
-            for (size_t j = 1; j < LUAT_LUADB_MAX_OPENFILE; j++)
-            {
-                if (fs->fds[j].file == NULL) {
-                    fs->fds[j].fd_pos = 0;
-                    fs->fds[j].file = &(fs->files[i]);
-                    LLOGD("open luadb path = %s fd=%d", path, j);
-                    return j;
-                }
-            }
-            
+            return &(fs->files[i]);
         }
+    }
+    luadb_file_t *ext = fs->inlines;
+    while (ext->ptr != NULL)
+    {
+        if (!strcmp(path, ext->name)) {
+            return ext;
+        }
+        ext += 1;
+    }
+    return NULL;
+}
+
+int luat_luadb_open(luadb_fs_t *fs, const char *path, int flags, int /*mode_t*/ mode) {
+    LLOGD("open luadb path = %s flags=%d", path, flags);
+    int fd = -1;
+    for (size_t j = 1; j < LUAT_LUADB_MAX_OPENFILE; j++)
+    {
+        if (fs->fds[j].file == NULL) {
+            fd = j;
+            break;
+        }
+    }
+    if (fd == -1) {
+        LLOGD("too many open files for luadb");
+        return 0;
+    }
+    luadb_file_t* f = find_by_name(fs, path);
+    if (f != NULL) {
+        fs->fds[fd].fd_pos = 0;
+        fs->fds[fd].file = f;
+        LLOGD("open luadb path = %s fd=%d", path, j);
+        return fd;
     }
     return 0;
 }
@@ -107,22 +125,8 @@ long luat_luadb_lseek(luadb_fs_t *fs, int fd, long /*off_t*/ offset, int mode) {
     return fs->fds[fd].fd_pos;
 }
 
-// int luat_luadb_fstat(void *fs, int fd, struct stat *st) {
-//     luadb_fs_t *_fs = (luadb_fs_t*)fs;
-//     if (fd < 0 || fd >= LUADB2_MAX_OPENFILE || _fs->fds[fd].file == NULL)
-//         return -1;
-//     st->st_size = _fs->fds[fd].file->size;
-//     return 0;
-// }
-
 luadb_file_t * luat_luadb_stat(luadb_fs_t *fs, const char *path) {
-    for (size_t i = 0; i < fs->filecount; i++)
-    {
-        if (!strcmp(path, fs->files[i].name)) {
-            return &fs->files[i];
-        }
-    }
-    return NULL;
+    return find_by_name(fs, path);
 }
 
 luadb_fs_t* luat_luadb_mount(const char* _ptr) {
@@ -218,15 +222,15 @@ _after_head:
         LLOGW("miss DB filecount");
         return NULL;
     }
-    if (filecount > 256) {
+    if (filecount > 1024) {
         LLOGW("too many file in LuaDB");
         return NULL;
     }
 
     LLOGD("LuaDB head seem ok");
 
-    // 由于luadb_fs_t带了一个luadb_file_t元素的,所以多出一个luadb_file_t, 方便存放sys.luac
-    size_t msize = sizeof(luadb_fs_t) + filecount*sizeof(luadb_file_t);
+    // 由于luadb_fs_t带了一个luadb_file_t元素的
+    size_t msize = sizeof(luadb_fs_t) + (filecount - 1)*sizeof(luadb_file_t);
     LLOGD("malloc fo luadb fs size=%d", msize);
     luadb_fs_t *fs = (luadb_fs_t*)luat_heap_malloc(msize);
     if (fs == NULL) {
@@ -243,7 +247,7 @@ _after_head:
     int fail = 0;
     uint8_t type = 0;
     uint32_t len = 0;
-    int hasSys = 0;
+    // int hasSys = 0;
     // 读取每个文件的头部
     for (size_t i = 0; i < filecount; i++)
     {
@@ -303,22 +307,12 @@ _after_head:
         fs->files[i].ptr = (const char*)(index + ptr); // 绝对地址
         index += fs->files[i].size;
 
-        if (hasSys == 0) {
-            if (!strcmp("sys.lua", fs->files[i].name) || !strcmp("sys.luac", fs->files[i].name))
-                hasSys = 1;
-        }
         LLOGD("LuaDB: %s %d", fs->files[i].name, fs->files[i].size);
-    }
-
-    if (fail == 0 && hasSys == 0) {
-        memcpy(fs->files[filecount].name, "sys.luac", strlen("sys.luac")+1);
-        fs->files[filecount].size = luat_inline_sys_size;
-        fs->files[filecount].ptr = luat_inline_sys;
-        fs->filecount ++;
     }
 
     if (fail == 0) {
         LLOGD("LuaDB check files .... ok");
+        fs->inlines = (luadb_file_t *)luat_inline2_libs;
         return fs;
     }
     else {
@@ -420,10 +414,27 @@ int luat_vfs_luadb_mkdir(void* userdata, char const* _DirName) {
     //LLOGE("not support yet : mkdir");
     return -1;
 }
+
 int luat_vfs_luadb_rmdir(void* userdata, char const* _DirName) {
     //LLOGE("not support yet : rmdir");
     return -1;
 }
+
+int luat_vfs_luadb_lsdir(void* userdata, char const* _DirName, luat_fs_dirent_t* ents, size_t offset, size_t len) {
+    luadb_fs_t* fs = (luadb_fs_t*)userdata;
+    if (fs->filecount > offset) {
+        if (offset + len > fs->filecount)
+            len = fs->filecount - offset;
+        for (size_t i = 0; i < len; i++)
+        {
+            ents[i].d_type = 0;
+            strcpy(ents[i].d_name, fs->files[i+offset].name);
+        }
+        return len;
+    }
+    return 0;
+}
+
 int luat_vfs_luadb_info(void* userdata, const char* path, luat_fs_info_t *conf) {
     memcpy(conf->filesystem, "luadb", strlen("luadb")+1);
     conf->type = 0;
@@ -448,13 +459,14 @@ const char* luat_vfs_luadb_mmap(void* userdata, int fd) {
 const struct luat_vfs_filesystem vfs_fs_luadb = {
     .name = "luadb",
     .opts = {
-        T(mkfs),
+        .mkfs = NULL,
         T(mount),
         T(umount),
-        T(mkdir),
-        T(rmdir),
-        T(remove),
-        T(rename),
+        .mkdir = NULL,
+        .rmdir = NULL,
+        .lsdir = NULL,
+        .remove = NULL,
+        .rename = NULL,
         T(fsize),
         T(fexist),
         T(info)
@@ -468,7 +480,139 @@ const struct luat_vfs_filesystem vfs_fs_luadb = {
         T(feof),
         T(ferror),
         T(fread),
-        T(fwrite)
+        .fwrite = NULL
     }
 };
 #endif
+
+#include "luat_crypto.h"
+
+int luat_luadb_checkfile(const char* path) {
+    size_t binsize = luat_fs_fsize(path);
+    if (binsize < 1024 || binsize > 1024*1024) {
+        LLOGD("%s is too small/big %d", path, binsize);
+        return -1;
+    } 
+    uint8_t* binbuff = NULL;
+    FILE * fd = luat_fs_fopen(path, "rb");
+    int res = -1;
+    if (fd) {
+
+        binbuff = (uint8_t*)luat_heap_malloc(binsize * sizeof(uint8_t));
+        if (binbuff == NULL) {
+            LLOGD("update.bin is TOO BIG, not OK");
+            goto _close;
+        }
+        memset(binbuff, 0, binsize);
+
+        luat_fs_fread(binbuff, sizeof(uint8_t), binsize, fd);
+        //做一下校验
+        if (binbuff[0] != 0x01 || binbuff[1] != 0x04 || binbuff[2]+(binbuff[3]<<8) != 0xA55A || binbuff[4]+(binbuff[5]<<8) != 0xA55A){
+            LLOGI("Magic error");
+            goto _close;
+        }
+        LLOGI("Magic OK");
+        if (binbuff[6] != 0x02 || binbuff[7] != 0x02 || binbuff[8] != 0x02 || binbuff[9] != 0x00){
+            LLOGI("Version error");
+            goto _close;
+        }
+        uint16_t version = binbuff[8]+(binbuff[9]<<8);
+        LLOGI("Version:%d",version);
+        if (binbuff[10] != 0x03 || binbuff[11] != 0x04){
+            LLOGI("Header error");
+            goto _close;
+        }
+        uint32_t headsize = binbuff[12]+(binbuff[13]<<8)+(binbuff[14]<<16)+(binbuff[15]<<24);
+        LLOGI("headers:%08x",headsize);
+        if (binbuff[16] != 0x04 || binbuff[17] != 0x02){
+            LLOGI("file count error");
+            goto _close;
+        }
+        uint16_t filecount = binbuff[18]+(binbuff[19]<<8);
+        LLOGI("file count:%d",filecount);
+        if (binbuff[20] != 0xFE || binbuff[21] != 0x02){
+            LLOGI("CRC16 error");
+            goto _close;
+        }
+        uint16_t crc16 = binbuff[22]+(binbuff[23]<<8);
+        int index = 24;
+        uint8_t type = 0;
+        uint32_t len = 0;
+        for (size_t i = 0; i < (int)filecount; i++){
+            LLOGD("LuaDB check files .... %d", i+1);
+            type = binbuff[index++];
+            len = binbuff[index++];
+            if (type != 1 || len != 4) {
+                LLOGD("bad file data 1 : %d %d %d", type, len, index);
+                goto _close;
+            }
+            index += 4;
+            // 2. 然后是名字
+            type = binbuff[index++];
+            len = binbuff[index++];
+            if (type != 2) {
+                LLOGD("bad file data 2 : %d %d %d", type, len, index);
+                goto _close;
+            }
+            // 拷贝文件名
+            LLOGD("LuaDB file name len = %d", len);
+            char test[10];
+            memcpy(test, &(binbuff[index]), len);
+            test[len] = 0x00;
+            index += len;
+            LLOGD("LuaDB file name %s", test);
+            if (strcmp(".airm2m_all_crc#.bin", test)==0){
+                LLOGD(".airm2m_all_crc#.bin");
+                // 3. 文件大小
+                type = binbuff[index++];
+                len = binbuff[index++];
+                if (type != 3 || len != 4) {
+                    LLOGD("bad file data 3 : %d %d %d", type, len, index);
+                    goto _close;
+                }
+                uint32_t fssize = binbuff[index]+(binbuff[index+1]<<8)+(binbuff[index+2]<<16)+(binbuff[index+3]<<24);
+                index+=4;
+                // 0xFE校验码
+                type = binbuff[index++];
+                len = binbuff[index++];
+                if (type != 0xFE || len != 2) {
+                    LLOGD("bad file data 4 : %d %d %d", type, len, index);
+                    goto _close;
+                }
+                index += len;
+                uint8_t md5data[16];
+                luat_crypto_md5_simple((const char*)binbuff, index, md5data);
+                for (size_t i = 0; i < 16; i++){
+                    if (md5data[i]!=binbuff[index++]){
+                        LLOGD("md5data error");
+                        goto _close;
+                    }
+                }
+                res = 0;
+                break;
+            }
+            // 3. 文件大小
+            type = binbuff[index++];
+            len = binbuff[index++];
+            if (type != 3 || len != 4) {
+                LLOGD("bad file data 3 : %d %d %d", type, len, index);
+                goto _close;
+            }
+            uint32_t fssize = binbuff[index]+(binbuff[index+1]<<8)+(binbuff[index+2]<<16)+(binbuff[index+3]<<24);
+            index+=4;
+            // 0xFE校验码
+            type = binbuff[index++];
+            len = binbuff[index++];
+            if (type != 0xFE || len != 2) {
+                LLOGD("bad file data 4 : %d %d %d", type, len, index);
+                goto _close;
+            }
+            index += len;
+            index += fssize;
+        }
+_close:
+        luat_heap_free(binbuff);
+        luat_fs_fclose(fd);
+    }
+    return res;
+}

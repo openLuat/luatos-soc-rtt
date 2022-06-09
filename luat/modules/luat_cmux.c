@@ -17,14 +17,10 @@ LuatOS cmux
 #include "luat_str.h"
 #include "luat_cmux.h"
 
-extern uint8_t echo_enable;
-extern uint8_t cmux_state;
-uint8_t cmux_main_state = 0;
-uint8_t cmux_shell_state = 0;
-uint8_t cmux_log_state = 0;
-uint8_t cmux_dbg_state = 0;
+luat_cmux_t cmux_ctx;
+extern luat_shell_t shell_ctx;
 
-const uint8_t cmux_crctable[256] = {
+static const uint8_t cmux_crctable[256] = {
     0x00, 0x91, 0xE3, 0x72, 0x07, 0x96, 0xE4, 0x75,
     0x0E, 0x9F, 0xED, 0x7C, 0x09, 0x98, 0xEA, 0x7B,
     0x1C, 0x8D, 0xFF, 0x6E, 0x1B, 0x8A, 0xF8, 0x69,
@@ -58,7 +54,7 @@ const uint8_t cmux_crctable[256] = {
     0xB4, 0x25, 0x57, 0xC6, 0xB3, 0x22, 0x50, 0xC1,
     0xBA, 0x2B, 0x59, 0xC8, 0xBD, 0x2C, 0x5E, 0xCF};
 
-uint8_t cmux_frame_check(const uint8_t *input, int length){
+static uint8_t cmux_frame_check(const uint8_t *input, int length){
     uint8_t fcs = 0xFF;
     int i;
     for (i = 0; i < length; i++){
@@ -67,15 +63,15 @@ uint8_t cmux_frame_check(const uint8_t *input, int length){
     return (0xFF - fcs);
 }
 
-void uih_main_manage(unsigned char*buff,size_t len){
+static void uih_main_manage(unsigned char*buff,size_t len){
     
 }
 
-void uih_shell_manage(unsigned char*buff,size_t len){
+static void uih_shell_manage(unsigned char*buff,size_t len){
     char send_buff[128] = {0};
     char *data = (char *)luat_heap_malloc(buff[3]>>1);
     memcpy(data, buff+4, buff[3]>>1);
-    if (echo_enable)
+    if (shell_ctx.echo_enable)
     {
         sprintf(send_buff, "%s\r\n", data);
         luat_cmux_write(LUAT_CMUX_CH_SHELL,  CMUX_FRAME_UIH & ~ CMUX_CONTROL_PF,send_buff, strlen(send_buff));
@@ -104,23 +100,23 @@ void uih_shell_manage(unsigned char*buff,size_t len){
         luat_cmux_write(LUAT_CMUX_CH_SHELL,  CMUX_FRAME_UIH & ~ CMUX_CONTROL_PF,"OK\r\n", 4);
         luat_os_reboot(0);
     }else if (memcmp("ATE0\r", data, 5) == 0 || memcmp("ate1\r", data, 5) == 0) {
-        echo_enable = 0;
+        shell_ctx.echo_enable = 0;
         luat_cmux_write(LUAT_CMUX_CH_SHELL,  CMUX_FRAME_UIH & ~ CMUX_CONTROL_PF,"OK\r\n", 4);
     }
     // 回显开启
     else if (memcmp("ATE1\r", data, 5) == 0 || memcmp("ate1\r", data, 5) == 0) {
-        echo_enable = 1;
+        shell_ctx.echo_enable = 1;
         luat_cmux_write(LUAT_CMUX_CH_SHELL,  CMUX_FRAME_UIH & ~ CMUX_CONTROL_PF,"OK\r\n", 4);
     }
     luat_heap_free(data);
 }
 
-void uih_dbg_manage(unsigned char*buff,size_t len){
+static void uih_dbg_manage(unsigned char*buff,size_t len){
     // char *data = (char *)luat_heap_malloc(len-3);
     // memset(data, 0, len-3); // 确保填充为0
     // memcpy(data, buff+4, len-4);
     char data[128] = {0};
-    if(cmux_dbg_state == 1)
+    if(cmux_ctx.dbg_state == 1)
         memcpy(data, buff+4, len-4); 
     else
         memcpy(data, buff, len); 
@@ -173,57 +169,84 @@ void uih_dbg_manage(unsigned char*buff,size_t len){
     }
     // luat_heap_free(data);
 }
+#ifdef LUAT_USE_YMODEM
+#include "luat_ymodem.h"
+static int ymodem_state = 0;
+static void* ymodem_handler = NULL;
+#endif
+static void uih_download_manage(unsigned char*buff,size_t len){
+#ifdef LUAT_USE_YMODEM
+    uint8_t ack, flag, file_ok, all_done;
+    if (ymodem_handler == NULL) {
+        ymodem_handler = luat_ymodem_create_handler("/", NULL);
+    }
+    luat_ymodem_receive(ymodem_handler, buff, len, &ack, &flag, &file_ok, &all_done);
+    if (all_done) {
+        //luat_ymodem_release
+    }
+#endif
+}
 
-void cmux_frame_manage(unsigned char*buff,size_t len){
-    // for (size_t i = 0; i < 20; i++){
+LUAT_WEAK void luat_cmux_log_set(uint8_t state) {
+}
+
+static void cmux_frame_manage(unsigned char*buff,size_t len){
+    // for (size_t i = 0; i < 10; i++){
     //     LLOGD("buff[%d]:%02X",i,buff[i]);
     // }
     if (CMUX_ADDRESS_DLC(buff)==LUAT_CMUX_CH_MAIN){
         if (CMUX_CONTROL_ISSABM(buff)){
-            cmux_main_state = 1;
+            cmux_ctx.main_state = 1;
             luat_cmux_write(LUAT_CMUX_CH_MAIN,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
         }else if(CMUX_CONTROL_ISDISC(buff)){
-            cmux_state = 0;
-            cmux_main_state = 0;
-            cmux_log_state = 0;
-            cmux_dbg_state = 0;
+            cmux_ctx.state = 0;
+            cmux_ctx.main_state = 0;
+            cmux_ctx.log_state = 0;
+            cmux_ctx.dbg_state = 0;
+            cmux_ctx.download_state = 0;
             luat_cmux_write(LUAT_CMUX_CH_MAIN,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
-        }else if(CMUX_CONTROL_ISUIH(buff) && cmux_main_state == 1){
+        }else if(CMUX_CONTROL_ISUIH(buff) && cmux_ctx.main_state == 1){
             uih_main_manage(buff,len);
         }
     }else if (CMUX_ADDRESS_DLC(buff)==LUAT_CMUX_CH_SHELL){
         if (CMUX_CONTROL_ISSABM(buff)){
-            cmux_shell_state = 1;
+            cmux_ctx.shell_state = 1;
             luat_cmux_write(LUAT_CMUX_CH_SHELL,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
         }else if(CMUX_CONTROL_ISDISC(buff)){
-            cmux_shell_state = 0;
+            cmux_ctx.shell_state = 0;
             luat_cmux_write(LUAT_CMUX_CH_SHELL,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
-        }else if(CMUX_CONTROL_ISUIH(buff) && cmux_shell_state == 1){
+        }else if(CMUX_CONTROL_ISUIH(buff) && cmux_ctx.shell_state == 1){
             uih_shell_manage(buff,len);
         }
     }else if (CMUX_ADDRESS_DLC(buff)==LUAT_CMUX_CH_LOG){
         if (CMUX_CONTROL_ISSABM(buff)){
-            cmux_log_state = 1;
+            cmux_ctx.log_state = 1;
+            luat_cmux_log_set(cmux_ctx.log_state);
             luat_cmux_write(LUAT_CMUX_CH_LOG,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
         }else if(CMUX_CONTROL_ISDISC(buff)){
-            cmux_log_state = 0;
+            cmux_ctx.log_state = 0;
+            luat_cmux_log_set(cmux_ctx.log_state);
             luat_cmux_write(LUAT_CMUX_CH_LOG,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
         }
     }else if (CMUX_ADDRESS_DLC(buff)==LUAT_CMUX_CH_DBG){
         if (CMUX_CONTROL_ISSABM(buff)){
-            cmux_dbg_state = 1;
+            cmux_ctx.dbg_state = 1;
             luat_cmux_write(LUAT_CMUX_CH_DBG,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
         }else if(CMUX_CONTROL_ISDISC(buff)){
-            cmux_dbg_state = 0;
+            cmux_ctx.dbg_state = 0;
             luat_cmux_write(LUAT_CMUX_CH_DBG,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
-        }else if(CMUX_CONTROL_ISUIH(buff) && cmux_dbg_state == 1){
+        }else if(CMUX_CONTROL_ISUIH(buff) && cmux_ctx.dbg_state == 1){
             uih_dbg_manage(buff,len);
         }
     }else if (CMUX_ADDRESS_DLC(buff)==LUAT_CMUX_CH_DOWNLOAD){
         if (CMUX_CONTROL_ISSABM(buff)){
+            cmux_ctx.download_state = 1;
             luat_cmux_write(LUAT_CMUX_CH_DOWNLOAD,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
         }else if(CMUX_CONTROL_ISDISC(buff)){
+            cmux_ctx.download_state = 0;
             luat_cmux_write(LUAT_CMUX_CH_DOWNLOAD,  CMUX_FRAME_UA | CMUX_CONTROL_PF,NULL, 0);
+        }else if(CMUX_CONTROL_ISUIH(buff) && cmux_ctx.download_state == 1){
+            uih_download_manage(buff,len);
         }
     }
 }
@@ -253,7 +276,9 @@ static int luat_cmux_parse(unsigned char* cmux_buff, int* start, int* end, int c
     // LLOGD("luat_cmux_parse start %d",*start);
     int length_needed = 5; /* channel, type, length, fcs, flag */
     if (cmux_buff[*start]==CMUX_HEAD_FLAG_BASIC&&cmux_buff[*start+1]==CMUX_HEAD_FLAG_BASIC){
-        (*start)++;
+        if (cmux_buff[*start+2]>>2!=LUAT_CMUX_CH_MAIN && cmux_buff[*start+2]>>2!=LUAT_CMUX_CH_SHELL && cmux_buff[*start+2]>>2!=LUAT_CMUX_CH_LOG && cmux_buff[*start+2]>>2!=LUAT_CMUX_CH_DBG && cmux_buff[*start+2]>>2!=LUAT_CMUX_CH_DOWNLOAD ){
+            (*start)++;
+        }
     }
     if(cmux_buff[*start]==CMUX_HEAD_FLAG_BASIC ){
         uint8_t len = (cmux_buff[*start+3]& 254) >> 1;
@@ -285,21 +310,34 @@ static int luat_cmux_parse(unsigned char* cmux_buff, int* start, int* end, int c
     return -1;
 }
 
-static unsigned char cmux_buff[CMUX_BUFFER_SIZE];
+static unsigned char *cmux_buff;
 static int cmux_buff_offset = 0;
 
 void luat_cmux_read(unsigned char* buff,size_t len){
+    // for (size_t i = 0; i < len; i++){
+    //     LLOGD("uart_buff[%d]:0x%02X",i,buff[i]);
+    // }
+    if (cmux_buff == NULL) {
+        cmux_buff = luat_heap_malloc(CMUX_BUFFER_SIZE);
+        if (cmux_buff == NULL) {
+            printf("cmux buff malloc FAIL!!\r\n");
+            return;
+        }
+    }
+
+    int start,end;
     if (cmux_buff_offset + len >= CMUX_BUFFER_SIZE) {
         printf("cmux overflow!!!\r\n");
         cmux_buff_offset = 0;
         return;
     }
     memcpy(cmux_buff + cmux_buff_offset, buff, len);
-    cmux_buff_offset += len;
+    cmux_buff_offset = cmux_buff_offset + len;
     cmux_buff[cmux_buff_offset] = 0x00;
     // int offset = 0;
-    int start = 0;
-    int end = 0;
+next_parse:
+    start = 0;
+    end = 0;
     // LLOGD("cmux_buff_offset %d",cmux_buff_offset);
     while (start < cmux_buff_offset) {
         // 解析
@@ -318,11 +356,16 @@ void luat_cmux_read(unsigned char* buff,size_t len){
             // LLOGD("end %d cmux_buff_offset %d",end,cmux_buff_offset);
             if (end+1<cmux_buff_offset){
                 char* transfer_buff = (char*)luat_heap_malloc(cmux_buff_offset-end);
-                memmove(transfer_buff, cmux_buff + end, cmux_buff_offset-end);
+                memmove(transfer_buff, cmux_buff + end+1, cmux_buff_offset-end);
                 memset(cmux_buff,0,CMUX_BUFFER_SIZE);
                 memmove(cmux_buff, transfer_buff, cmux_buff_offset-end);
+                cmux_buff_offset = cmux_buff_offset-end;
                 luat_heap_free(transfer_buff);
-                return;
+                // for (size_t i = 0; i < cmux_buff_offset; i++){
+                //     LLOGD("uart_buff[%d]:0x%02X",i,cmux_buff[i]);
+                // }
+                goto next_parse;
+                // return;
             }
             break;
         }

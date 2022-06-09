@@ -198,27 +198,83 @@ static int b_replace (lua_State *L) {
   return 1;
 }
 
+// Lua: res = bit( position )
+static int b_bit( lua_State* L )
+{
+  lua_pushinteger( L, ( lua_Integer )( 1 << (lua_Unsigned)luaL_checknumber( L, 1 ) ) );
+  return 1;
+}
 
-static const luaL_Reg bitlib[] = {
-  {"arshift", b_arshift},
-  {"band", b_and},
-  {"bnot", b_not},
-  {"bor", b_or},
-  {"bxor", b_xor},
-  {"btest", b_test},
-  {"extract", b_extract},
-  {"lrotate", b_lrot},
-  {"lshift", b_lshift},
-  {"replace", b_replace},
-  {"rrotate", b_rrot},
-  {"rshift", b_rshift},
-  {NULL, NULL}
+// Lua: res = set( value, pos1, pos2, ... )
+static int b_set( lua_State* L )
+{ 
+  lua_Unsigned val = (lua_Unsigned)luaL_checknumber( L, 1 );
+  unsigned total = lua_gettop( L ), i;
+  
+  for( i = 2; i <= total; i ++ )
+    val |= 1 << ( unsigned )luaL_checkinteger( L, i );
+  lua_pushinteger( L, ( lua_Integer )val );
+  return 1;
+}
+
+// Lua: res = clear( value, pos1, pos2, ... )
+static int b_clear( lua_State* L )
+{
+  lua_Unsigned val = (lua_Unsigned)luaL_checknumber( L, 1 );
+  unsigned total = lua_gettop( L ), i;
+  
+  for( i = 2; i <= total; i ++ )
+    val &= ~( 1 << ( unsigned )luaL_checkinteger( L, i ) );
+  lua_pushinteger( L, ( lua_Integer )val );
+  return 1; 
+}
+
+// Lua: res = isset( value, position )
+static int b_isset( lua_State* L )
+{
+  lua_Unsigned val = (lua_Unsigned)luaL_checknumber( L, 1 );
+  unsigned pos = ( unsigned )luaL_checkinteger( L, 2 );
+  
+  lua_pushboolean( L, val & ( 1 << pos ) ? 1 : 0 );
+  return 1;
+}
+
+// Lua: res = isclear( value, position )
+static int b_isclear( lua_State* L )
+{
+  lua_Unsigned val = (lua_Unsigned)luaL_checknumber( L, 1 );
+  unsigned pos = ( unsigned )luaL_checkinteger( L, 2 );
+  
+  lua_pushboolean( L, val & ( 1 << pos ) ? 0 : 1 );
+  return 1;
+}
+
+#include "rotable2.h"
+static const rotable_Reg_t  bitlib[] = {
+  {"arshift", ROREG_FUNC(b_arshift)},
+  {"band",    ROREG_FUNC(b_and)},
+  {"bnot",    ROREG_FUNC(b_not)},
+  {"bor",     ROREG_FUNC(b_or)},
+  {"bxor",    ROREG_FUNC(b_xor)},
+  {"btest",   ROREG_FUNC(b_test)},
+  {"extract", ROREG_FUNC(b_extract)},
+  {"lrotate", ROREG_FUNC(b_lrot)},
+  {"lshift",  ROREG_FUNC(b_lshift)},
+  {"replace", ROREG_FUNC(b_replace)},
+  {"rrotate", ROREG_FUNC(b_rrot)},
+  {"rshift",  ROREG_FUNC(b_rshift)},
+  {"bit",     ROREG_FUNC(b_bit)},
+  {"set",     ROREG_FUNC(b_set)},
+  {"clear",   ROREG_FUNC(b_clear)},
+  {"isset",   ROREG_FUNC(b_isset)},
+  {"isclear", ROREG_FUNC(b_isclear)},
+  {NULL,      ROREG_INT(0) }
 };
 
-
-
 LUAMOD_API int luaopen_bit32 (lua_State *L) {
-  luaL_newlib(L, bitlib);
+  luat_newlib2(L, bitlib);
+  lua_pushvalue(L, -1);
+  lua_setglobal(L, "bit"); // 兼容LuatOS-Air
   return 1;
 }
 

@@ -3,6 +3,7 @@
 @summary 中国电信CTIOT集成
 @version 1.0
 @date    2020.08.30
+@demo ctiot
 */
 #include "luat_base.h"
 #include "luat_timer.h"
@@ -156,6 +157,16 @@ static int luat_ctiot_msg_handler(lua_State *L, void* ptr)
 	}
 	lua_getglobal(L, "sys_pub");
 	lua_pushstring(L, tag);
+/*
+@sys_pub ctiot
+CTIOT 接收回调消息
+CTIOT_RX
+@string data, CTIOT 接收数据
+@usage
+sys.subscribe("CTIOT_RX", function(data)
+    log.info("CTIOT_RX", data:toHex())
+end)
+*/
 	if (CTIOT_EVENT_RX == type)
 	{
 		lua_pushlstring(L, buff + 6, len);
@@ -163,6 +174,84 @@ static int luat_ctiot_msg_handler(lua_State *L, void* ptr)
 	}
 	else
 	{
+/*
+@sys_pub ctiot
+CTIOT 发送回调消息
+CTIOT_TX
+@bool error, 是否成功
+@number error_code, 错误代码
+@number param, 数据
+@usage
+sys.subscribe("CTIOT_TX", function (error, error_code, param)
+    log.info("CTIOT_TX", error, error_code, param)
+end)
+*/
+
+/*
+@sys_pub ctiot
+CTIOT REG回调消息
+CTIOT_REG
+@bool error, 是否成功
+@number error_code, 错误代码
+@number param, 数据
+@usage
+sys.subscribe("CTIOT_REG", function (error, error_code, param)
+    log.info("CTIOT_REG", error, error_code, param)
+end)
+*/
+
+/*
+@sys_pub ctiot
+CTIOT DEREG回调消息
+CTIOT_DEREG
+@bool error, 是否成功
+@number error_code, 错误代码
+@number param, 数据
+@usage
+sys.subscribe("CTIOT_DEREG", function (error, error_code, param)
+    log.info("CTIOT_DEREG", error, error_code, param)
+end)
+*/
+
+/*
+@sys_pub ctiot
+CTIOT 唤醒回调消息
+CTIOT_WAKEUP
+@bool error, 是否成功
+@number error_code, 错误代码
+@number param, 数据
+@usage
+sys.subscribe("CTIOT_WAKEUP", function (error, error_code, param)
+    log.info("CTIOT_WAKEUP", error, error_code, param)
+end)
+*/
+
+/*
+@sys_pub ctiot
+CTIOT 其他回调消息
+CTIOT_OTHER
+@bool error, 是否成功
+@number error_code, 错误代码
+@number param, 数据
+@usage
+sys.subscribe("CTIOT_OTHER", function (error, error_code, param)
+    log.info("CTIOT_OTHER", error, error_code, param)
+end)
+*/
+
+/*
+@sys_pub ctiot
+CTIOT FOTA回调消息
+CTIOT_FOTA
+@bool error, 是否成功
+@number error_code, 错误代码
+@number param, 数据
+@usage
+sys.subscribe("CTIOT_FOTA", function (error, error_code, param)
+    log.info("CTIOT_FOTA", error, error_code, param)
+end)
+*/
+
 		lua_pushboolean(L, error);
 		lua_pushinteger(L, error_code);
 		lua_pushinteger(L, param);
@@ -424,30 +513,30 @@ static int l_ctiot_update(lua_State *L)
 #endif
 
 
-#include "rotable.h"
-static const rotable_Reg reg_ctiot[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_ctiot[] =
 {
 #ifdef AIR302
-    { "init", l_ctiot_init, 0},
-    { "param", l_ctiot_param, 0},
-	{ "ep", l_ctiot_ep, 0},
-	{ "isReady", l_ctiot_ready, 0},
-//	{ "mode", l_ctiot_mode, 0},
-	{ "connect", l_ctiot_connect, 0},
-	{ "disconnect", l_ctiot_disconnect, 0},
-	{ "write", l_ctiot_write, 0},
-//	{ "read", l_ctiot_read, 0},
-	{ "update", l_ctiot_update, 0},
+    { "init", ROREG_FUNC(l_ctiot_init)},
+    { "param", ROREG_FUNC(l_ctiot_param)},
+	{ "ep", ROREG_FUNC(l_ctiot_ep)},
+	{ "isReady", ROREG_FUNC(l_ctiot_ready)},
+//	{ "mode", ROREG_FUNC(l_ctiot_mode)},
+	{ "connect", ROREG_FUNC(l_ctiot_connect)},
+	{ "disconnect", ROREG_FUNC(l_ctiot_disconnect)},
+	{ "write", ROREG_FUNC(l_ctiot_write)},
+//	{ "read", ROREG_FUNC(l_ctiot_read)},
+	{ "update", ROREG_FUNC(l_ctiot_update)},
     // ----- 类型常量
-	{ "CON", NULL, 0},
-	{ "NON", NULL, 1},
-	{ "NON_REL", NULL, 2},
-	{ "CON_REL", NULL, 3},
+	{ "CON", ROREG_INT(0)},
+	{ "NON", ROREG_INT(1)},
+	{ "NON_REL", ROREG_INT(2)},
+	{ "CON_REL", ROREG_INT(3)},
 #endif
-	{ NULL, NULL , 0}
+	{ NULL, ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_ctiot( lua_State *L ) {
-    luat_newlib(L, reg_ctiot);
+    luat_newlib2(L, reg_ctiot);
     return 1;
 }

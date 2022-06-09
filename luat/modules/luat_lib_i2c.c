@@ -4,6 +4,7 @@
 @summary I2C操作
 @version 1.0
 @date    2020.03.30
+@demo i2c
 */
 #include "luat_base.h"
 #include "luat_log.h"
@@ -11,7 +12,7 @@
 #include "luat_malloc.h"
 #include "luat_i2c.h"
 #include "luat_gpio.h"
-
+#include "luat_zbuff.h"
 #define LUAT_LOG_TAG "i2c"
 #include "luat_log.h"
 
@@ -127,7 +128,7 @@ static char i2c_soft_recv(luat_ei2c *ei2c, unsigned char addr, char *buff, size_
         i2c_soft_stop(ei2c);
         return -1;
     }
-    luat_timer_us_delay(2000);
+    luat_timer_us_delay(50);
     for (i = 0; i < len; i++)
     {
         *buff++ = i2c_soft_recv_byte(ei2c);
@@ -138,7 +139,7 @@ static char i2c_soft_recv(luat_ei2c *ei2c, unsigned char addr, char *buff, size_
     i2c_soft_stop(ei2c);
     return 0;
 }
-static char i2c_soft_send(luat_ei2c *ei2c, unsigned char addr, char *data, size_t len)
+static char i2c_soft_send(luat_ei2c *ei2c, unsigned char addr, char *data, size_t len, uint8_t stop)
 {
     size_t i;
     i2c_soft_start(ei2c);
@@ -157,7 +158,9 @@ static char i2c_soft_send(luat_ei2c *ei2c, unsigned char addr, char *data, size_
             return -1;
         }
     }
-    i2c_soft_stop(ei2c);
+    if (stop){
+        i2c_soft_stop(ei2c);
+    }
     return 0;
 }
 
@@ -230,10 +233,11 @@ static int l_i2c_soft(lua_State *L)
 
 /*
 i2c发送数据
-@api i2c.send(id, addr, data)
+@api i2c.send(id, addr, data,stop)
 @int 设备id, 例如i2c1的id为1, i2c2的id为2
 @int I2C子设备的地址, 7位地址
 @integer/string/table 待发送的数据,自适应参数类型
+@integer 可选参数 是否发送停止位 1发送 0不发送 默认发送(105不支持)
 @return true/false 发送是否成功
 @usage
 -- 往i2c0发送1个字节的数据
@@ -253,24 +257,20 @@ static int l_i2c_send(lua_State *L)
     size_t len = 0;
     int result = 0;
 
+    int stop = luaL_optnumber(L, 4 , 1);
     if (lua_isinteger(L, 3))
     {
-        len = lua_gettop(L) - 2;
-        char *buff = (char *)luat_heap_malloc(len);
-        for (size_t i = 0; i < len; i++)
-        {
-            buff[i] = (char)lua_tointeger(L, 3 + i);
-        }
+        char buff = (char)luaL_checkinteger(L, 3);
         if (lua_isuserdata(L, 1))
         {
             luat_ei2c *ei2c = toei2c(L);
-            result = i2c_soft_send(ei2c, addr, buff, len);
+            result = i2c_soft_send(ei2c, addr, &buff, 1,stop);
         }
         else
         {
-            result = luat_i2c_send(id, addr, buff, len);
+            result = luat_i2c_send(id, addr, &buff, 1,stop);
         }
-        luat_heap_free(buff);
+        // luat_heap_free(buff);
     }
     else if (lua_isstring(L, 3))
     {
@@ -278,11 +278,11 @@ static int l_i2c_send(lua_State *L)
         if (lua_isuserdata(L, 1))
         {
             luat_ei2c *ei2c = toei2c(L);
-            result = i2c_soft_send(ei2c, addr, (char *)buff, len);
+            result = i2c_soft_send(ei2c, addr, (char *)buff, len,stop);
         }
         else
         {
-            result = luat_i2c_send(id, addr, (char *)buff, len);
+            result = luat_i2c_send(id, addr, (char *)buff, len,stop);
         }
     }
     else if (lua_istable(L, 3))
@@ -299,15 +299,26 @@ static int l_i2c_send(lua_State *L)
         if (lua_isuserdata(L, 1))
         {
             luat_ei2c *ei2c = toei2c(L);
-            result = i2c_soft_send(ei2c, addr, buff, len);
+            result = i2c_soft_send(ei2c, addr, buff, len,stop);
         }
         else
         {
-            result = luat_i2c_send(id, addr, buff, len);
+            result = luat_i2c_send(id, addr, buff, len,stop);
         }
         luat_heap_free(buff);
     }
-
+    else
+    {
+        if (lua_isuserdata(L, 1))
+        {
+            luat_ei2c *ei2c = toei2c(L);
+            result = i2c_soft_send(ei2c, addr, NULL, 0,stop);
+        }
+        else
+        {
+            result = luat_i2c_send(id, addr, NULL, 0,stop);
+        }
+    }
     lua_pushboolean(L, result == 0);
     return 1;
 }
@@ -355,11 +366,12 @@ static int l_i2c_recv(lua_State *L)
 
 /*
 i2c写寄存器数据
-@api i2c.writeReg(id, addr, reg, data)
+@api i2c.writeReg(id, addr, reg, data,stop)
 @int 设备id, 例如i2c1的id为1, i2c2的id为2
 @int I2C子设备的地址, 7位地址
 @int 寄存器地址
 @string 待发送的数据
+@integer 可选参数 是否发送停止位 1发送 0不发送 默认发送(105不支持)
 @return true/false 发送是否成功
 @usage
 -- 从i2c1的地址为0x5C的设备的寄存器0x01写入2个字节的数据
@@ -376,6 +388,7 @@ static int l_i2c_write_reg(lua_State *L)
     int reg = luaL_checkinteger(L, 3);
     size_t len;
     const char *lb = luaL_checklstring(L, 4, &len);
+    int stop = luaL_optnumber(L, 5 , 1);
     char *buff = (char *)luat_heap_malloc(sizeof(char) * len + 1);
     *buff = (char)reg;
     memcpy(buff + 1, lb, sizeof(char) + len + 1);
@@ -383,11 +396,11 @@ static int l_i2c_write_reg(lua_State *L)
     if (lua_isuserdata(L, 1))
     {
         luat_ei2c *ei2c = toei2c(L);
-        result = i2c_soft_send(ei2c, addr, buff, len + 1);
+        result = i2c_soft_send(ei2c, addr, buff, len + 1,stop);
     }
     else
     {
-        result = luat_i2c_send(id, addr, buff, len + 1);
+        result = luat_i2c_send(id, addr, buff, len + 1,stop);
     }
     luat_heap_free(buff);
     lua_pushboolean(L, result == 0);
@@ -401,6 +414,7 @@ i2c读寄存器数据
 @int I2C子设备的地址, 7位地址
 @int 寄存器地址
 @int 待接收的数据长度
+@integer 可选参数 是否发送停止位 1发送 0不发送 默认发送(105不支持)
 @return string 收到的数据
 @usage
 -- 从i2c1的地址为0x5C的设备的寄存器0x01读出2个字节的数据
@@ -416,16 +430,17 @@ static int l_i2c_read_reg(lua_State *L)
     int addr = luaL_checkinteger(L, 2);
     int reg = luaL_checkinteger(L, 3);
     int len = luaL_checkinteger(L, 4);
+    int stop = luaL_optnumber(L, 5 , 0);
     char temp = (char)reg;
     int result;
     if (lua_isuserdata(L, 1))
     {
         luat_ei2c *ei2c = toei2c(L);
-        result = i2c_soft_send(ei2c, addr, &temp, 1);
+        result = i2c_soft_send(ei2c, addr, &temp, 1,stop);
     }
     else
     {
-        result = luat_i2c_send(id, addr, &temp, 1);
+        result = luat_i2c_send(id, addr, &temp, 1,stop);
     }
     if (result != 0)
     { //如果返回值不为0，说明收失败了
@@ -499,11 +514,11 @@ static int l_i2c_readDHT12(lua_State *L)
     if (lua_isuserdata(L, 1))
     {
         luat_ei2c *ei2c = toei2c(L);
-        result = i2c_soft_send(ei2c, addr, &temp, 1);
+        result = i2c_soft_send(ei2c, addr, &temp, 1,1);
     }
     else
     {
-        result = luat_i2c_send(id, addr, &temp, 1);
+        result = luat_i2c_send(id, addr, &temp, 1,1);
     }
     if (result != 0)
     {
@@ -579,7 +594,7 @@ static int l_i2c_readSHT30(lua_State *L)
     if (lua_isuserdata(L, 1))
     {
         luat_ei2c *ei2c = toei2c(L);
-        i2c_soft_send(ei2c, ei2c->addr, buff, 2);
+        i2c_soft_send(ei2c, ei2c->addr, buff, 2,1);
         luat_timer_mdelay(13);
 
         result = i2c_soft_recv(ei2c, ei2c->addr, buff, 6);
@@ -589,7 +604,7 @@ static int l_i2c_readSHT30(lua_State *L)
         int id = luaL_optinteger(L, 1, 0);
         int addr = luaL_optinteger(L, 2, 0x44);
 
-        luat_i2c_send(id, addr, &buff, 2);
+        luat_i2c_send(id, addr, &buff, 2,1);
         luat_timer_mdelay(1);
         result = luat_i2c_recv(id, addr, buff, 6);
     }
@@ -635,32 +650,148 @@ static int l_i2c_readSHT30(lua_State *L)
     }
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_i2c[] =
+
+int LUAT_WEAK luat_i2c_transfer(int id, int addr, uint8_t *reg, size_t reg_len, uint8_t *buff, size_t len)
 {
-    { "exist", l_i2c_exist, 0},
-    { "setup", l_i2c_setup, 0},
-    { "createSoft", l_i2c_soft, 0},
+    int result;
+    result = luat_i2c_send(id, addr, reg, reg_len, 0);
+    if (result != 0) return-1;
+    return luat_i2c_recv(id, addr, buff, len);
+}
+
+/**
+i2c通用传输，包括发送N字节，发送N字节+接收N字节，接收N字节三种功能，在发送转接收过程中发送reStart信号,解决类似mlx90614必须带restart信号，但是又不能用i2c.send来控制的，比如air105
+@api i2c.transfer(id, addr, txBuff, rxBuff, rxLen)
+@int 设备id, 例如i2c1的id为1, i2c2的id为2
+@int I2C子设备的地址, 7位地址
+@integer/string/zbuff 待发送的数据,自适应参数类型，如果为nil，则不发送数据
+@zbuff 待接收数据的zbuff 如果不用zbuff，则接收数据将在return返回
+@int 需要接收的数据长度，如果为0或nil，则不接收数据
+@return boolean true/false 发送是否成功
+@return string or nil 如果参数5是interger，则返回接收到的数据
+@usage
+local result, _ = i2c.transfer(0, 0x11, txbuff, rxbuff, 1)
+local result, _ = i2c.transfer(0, 0x11, txbuff, nil, 0)	--只发送txbuff里的数据，不接收数据，典型应用就是写寄存器了，这里寄存器地址和值都放在了txbuff里
+local result, _ = i2c.transfer(0, 0x11, "\x01\x02\x03", nil, 1) --发送0x01， 0x02，0x03，不接收数据，如果是eeprom，就是往0x01的地址写02和03，或者往0x0102的地址写03，看具体芯片了
+local result, rxdata = i2c.transfer(0, 0x11, "\x01\x02", nil, 1) --发送0x01， 0x02，然后接收1个字节，典型应用就是eeprom
+local result, rxdata = i2c.transfer(0, 0x11, 0x00, nil, 1) --发送0x00，然后接收1个字节，典型应用各种传感器
+*/
+static int l_i2c_transfer(lua_State *L)
+{
+	int addr = luaL_checkinteger(L, 2);
+	size_t tx_len = 0;
+	size_t rx_len = 0;
+	int result = 0;
+	uint8_t temp[1];
+	uint8_t *tx_buff = NULL;
+	uint8_t *rx_buff = NULL;
+	uint8_t tx_heap_flag = 0;
+	if (lua_isnil(L, 3)) {
+		tx_len = 0;
+	}
+	else if (lua_isinteger(L, 3)) {
+		temp[0] = luaL_checkinteger(L, 3);
+		tx_buff = temp;
+		tx_len = 1;
+	}
+	else if (lua_isstring(L, 3)) {
+		tx_buff = (uint8_t*)luaL_checklstring(L, 3, &tx_len);
+	}
+    else if (lua_istable(L, 3)) {
+        const int tx_len = lua_rawlen(L, 3); //返回数组的长度
+        tx_buff = (uint8_t *)luat_heap_malloc(tx_len);
+        tx_heap_flag = 1;
+        for (size_t i = 0; i < tx_len; i++)
+        {
+            lua_rawgeti(L, 3, 1 + i);
+            tx_buff[i] = (char)lua_tointeger(L, -1);
+            lua_pop(L, 1); //将刚刚获取的元素值从栈中弹出
+        }
+    }
+	else {
+		luat_zbuff_t *buff = ((luat_zbuff_t *)luaL_checkudata(L, 3, LUAT_ZBUFF_TYPE));
+		tx_buff = buff->addr;
+		tx_len = buff->used;
+	}
+	luat_zbuff_t *rbuff = ((luat_zbuff_t *)luaL_testudata(L, 4, LUAT_ZBUFF_TYPE));
+	if (lua_isnil(L, 5)) {
+		rx_len = 0;
+	}
+	else if (lua_isinteger(L, 5)) {
+		rx_len = luaL_checkinteger(L, 5);
+		if (rx_len) {
+			if (!rbuff) {
+				rx_buff = luat_heap_malloc(rx_len);
+			}
+			else {
+				if ((rbuff->used + rx_len) > rbuff->len) {
+					__zbuff_resize(rbuff, rbuff->len + rx_len);
+				}
+				rx_buff = rbuff->addr + rbuff->used;
+			}
+		}
+	}
+
+	int id = 0;
+	if (!lua_isuserdata(L, 1)) {
+		id = luaL_checkinteger(L, 1);
+		if (rx_buff && rx_len) {
+			result = luat_i2c_transfer(id, addr, tx_buff, tx_len, rx_buff, rx_len);
+		} else {
+			result = luat_i2c_transfer(id, addr, NULL, 0, tx_buff, tx_len);
+		}
+	}
+	if (tx_heap_flag) {
+		luat_heap_free(tx_buff);
+	}
+//	else if (lua_isuserdata(L, 1))
+//    {
+//        luat_ei2c *ei2c = toei2c(L);
+//    }
+	lua_pushboolean(L, !result);
+	if (rx_buff && rx_len) {
+		if (rbuff) {
+			rbuff->used += rx_len;
+			lua_pushnil(L);
+		} else {
+            lua_pushlstring(L, (const char *)rx_buff, rx_len);
+            luat_heap_free(rx_buff);
+		}
+	} else {
+		lua_pushnil(L);
+	}
+	return 2;
+
+}
+
+#include "rotable2.h"
+static const rotable_Reg_t reg_i2c[] =
+{
+    { "exist",      ROREG_FUNC(l_i2c_exist)},
+    { "setup",      ROREG_FUNC(l_i2c_setup)},
+    { "createSoft", ROREG_FUNC(l_i2c_soft)},
 #ifdef __F1C100S__
 #else
-    { "send", l_i2c_send, 0},
-    { "recv", l_i2c_recv, 0},
+    { "send",       ROREG_FUNC(l_i2c_send)},
+    { "recv",       ROREG_FUNC(l_i2c_recv)},
+
 #endif
-    { "writeReg", l_i2c_write_reg, 0},
-    { "readReg", l_i2c_read_reg, 0},
-    { "close", l_i2c_close, 0},
+	{ "transfer",	ROREG_FUNC(l_i2c_transfer)},
+    { "writeReg",   ROREG_FUNC(l_i2c_write_reg)},
+    { "readReg",    ROREG_FUNC(l_i2c_read_reg)},
+    { "close",      ROREG_FUNC(l_i2c_close)},
 
-    { "readDHT12", l_i2c_readDHT12, 0},
-    { "readSHT30", l_i2c_readSHT30, 0},
+    { "readDHT12",  ROREG_FUNC(l_i2c_readDHT12)},
+    { "readSHT30",  ROREG_FUNC(l_i2c_readSHT30)},
 
-    { "FAST",  NULL, 1},
-    { "SLOW",  NULL, 0},
-	{ NULL, NULL, 0}
+    { "FAST",       ROREG_INT(1)},
+    { "SLOW",       ROREG_INT(0)},
+	{ NULL,         ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_i2c(lua_State *L)
 {
-    luat_newlib(L, reg_i2c);
+    luat_newlib2(L, reg_i2c);
     luaL_newmetatable(L, LUAT_EI2C_TYPE);
     lua_pop(L, 1);
     return 1;

@@ -4,6 +4,17 @@
 #include "luat_base.h"
 #include "luat_dbg.h"
 
+
+typedef struct luat_cmux
+{
+    uint8_t state;
+    uint8_t main_state;
+    uint8_t shell_state;
+    uint8_t log_state;
+    uint8_t dbg_state;
+    uint8_t download_state;
+}luat_cmux_t;
+
 #define LUAT_CMUX_CH_MAIN 0
 #define LUAT_CMUX_CH_SHELL 1
 #define LUAT_CMUX_CH_LOG  2
@@ -40,6 +51,14 @@
 #define CMUX_CONTROL_ISUI(buff) (buff[2]==(CMUX_FRAME_UI & ~CMUX_CONTROL_PF))
 
 #define CMUX_BUFFER_SIZE   1024
+
+extern uint8_t echo_enable;
+extern uint8_t cmux_state;
+extern uint8_t cmux_main_state;
+extern uint8_t cmux_shell_state;
+extern uint8_t cmux_log_state;
+extern uint8_t cmux_dbg_state;
+extern uint8_t cmux_download_state;
 
 void luat_cmux_write(int port, uint8_t control,char* buff, size_t len);
 void luat_cmux_read(unsigned char* buff,size_t len);

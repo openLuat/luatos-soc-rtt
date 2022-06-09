@@ -66,6 +66,24 @@ LUAT_WEAK size_t luat_fs_fsize(const char *filename) {
     return size;
 }
 
+LUAT_WEAK int luat_fs_readline(char * buf, int bufsize, FILE * stream){
+    int get_len = 0;
+    char buff[1];
+    for (size_t i = 0; i < bufsize; i++){
+        int len = luat_fs_fread(buff, sizeof(char), 1, stream);
+        if (len>0){
+            get_len = get_len+len;
+            memcpy(buf+i, buff, len);
+            if (memcmp(buff, "\n", 1)==0){
+                break;
+            }
+        }else{
+            break;
+        }
+    }
+    return get_len;
+}
+
 LUAT_WEAK int luat_fs_mkfs(luat_fs_conf_t *conf) {
     LLOGE("not support yet : mkfs");
     return -1;
@@ -86,4 +104,9 @@ LUAT_WEAK int luat_fs_mkdir(char const* _DirName) {
 LUAT_WEAK int luat_fs_rmdir(char const* _DirName) {
     LLOGE("not support yet : rmdir");
     return -1;
+}
+
+LUAT_WEAK int luat_fs_lsdir(char const* _DirName, luat_fs_dirent_t* ents, size_t offset, size_t len) {
+    LLOGE("not support yet : lsdir");
+    return 0;
 }

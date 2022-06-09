@@ -79,7 +79,15 @@ luat_vfs_mount_t * getmount(const char* filename) {
 }
 
 int luat_fs_mkfs(luat_fs_conf_t *conf) {
-    return 0;
+    for (size_t j = 0; j < LUAT_VFS_FILESYSTEM_MOUNT_MAX; j++) {
+        if (vfs.mounted[j].ok == 0)
+            continue;
+        if (strcmp(vfs.mounted[j].prefix, conf->mount_point) == 0 && vfs.mounted[j].fs->opts.mkfs != NULL) {
+            return vfs.mounted[j].fs->opts.mkfs(vfs.mounted[j].userdata, conf);
+        }
+    }
+    LLOGE("no such mount point %s", conf->mount_point);
+    return -1;
 }
 
 int luat_fs_mount(luat_fs_conf_t *conf) {
@@ -254,7 +262,7 @@ int luat_fs_remove(const char *filename) {
 int luat_fs_rename(const char *old_filename, const char *new_filename) {
     luat_vfs_mount_t *old_mount = getmount(old_filename);
     luat_vfs_mount_t *new_mount = getmount(new_filename);\
-    if (old_filename == NULL || new_mount != old_mount) {
+    if (old_filename == NULL || new_mount != old_mount || old_mount->fs->opts.rename == NULL) {
         return -1;
     }
     return old_mount->fs->opts.rename(old_mount->userdata, old_filename + strlen(old_mount->prefix),
@@ -271,6 +279,24 @@ int luat_fs_fexist(const char *filename) {
     if (mount == NULL || mount->fs->opts.fexist == NULL) return 0;
     return mount->fs->opts.fexist(mount->userdata,  filename + strlen(mount->prefix));
 }
+int luat_fs_readline(char * buf, int bufsize, FILE * stream){
+    int get_len = 0;
+    char buff[2];
+    for (size_t i = 0; i <= bufsize; i++){
+        memset(buff, 0, 2);
+        int len = luat_fs_fread(buff, sizeof(char), 1, stream);
+        if (len>0){
+            get_len = get_len+len;
+            memcpy(buf+i, buff, len);
+            if (memcmp(buff, "\n", 1)==0){
+                break;
+            }
+        }else{
+            break;
+        }
+    }
+    return get_len;
+}
 
 // TODO 文件夹相关的API
 //int luat_fs_diropen(char const* _FileName);
@@ -282,8 +308,23 @@ int luat_fs_mkdir(char const* _DirName) {
 }
 int luat_fs_rmdir(char const* _DirName) {
     luat_vfs_mount_t *mount = getmount(_DirName);
-    if (mount == NULL) return 0;
+    if (mount == NULL || mount->fs->opts.rmdir == NULL) return 0;
     return mount->fs->opts.rmdir(mount->userdata,  _DirName + strlen(mount->prefix));
+}
+
+int luat_fs_lsdir(char const* _DirName, luat_fs_dirent_t* ents, size_t offset, size_t len) {
+    if (len == 0)
+        return 0;
+    luat_vfs_mount_t *mount = getmount(_DirName);
+    if (mount == NULL) {
+        LLOGD("no such mount");
+        return 0;
+    }
+    if (mount->fs->opts.lsdir == NULL) {
+        LLOGD("such mount not support lsdir");
+        return 0;
+    }
+    return mount->fs->opts.lsdir(mount->userdata,  _DirName + strlen(mount->prefix), ents, offset, len);
 }
 
 extern const struct luat_vfs_filesystem vfs_fs_luadb;
@@ -294,7 +335,7 @@ const char* luat_vfs_mmap(FILE* stream) {
     if (fd == NULL)
         return NULL;
     if (fd->fsMount->fs == &vfs_fs_luadb) {
-        return luat_vfs_luadb_mmap(fd->fsMount->userdata, fd->fd);
+        return luat_vfs_luadb_mmap(fd->fsMount->userdata, (int)fd->fd);
     }
     return NULL;
 }

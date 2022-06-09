@@ -4,6 +4,7 @@
 @summary 数模转换
 @version 1.0
 @date    2020.07.03
+@demo adc
 */
 #include "luat_base.h"
 #include "luat_adc.h"
@@ -35,7 +36,7 @@ static int l_adc_open(lua_State *L) {
 @api adc.read(id)
 @int 通道id,与具体设备有关,通常从0开始
 @return int 原始值
-@return int 计算后的值
+@return int 从原始值换算得出的电压值，通常单位是mV
 @usage
 -- 打开adc通道2,并读取
 if adc.open(2) then
@@ -73,16 +74,16 @@ static int l_adc_close(lua_State *L) {
     return 0;
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_adc[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_adc[] =
 {
-    { "open" ,       l_adc_open , 0},
-    { "read" ,       l_adc_read , 0},
-    { "close" ,      l_adc_close, 0},
-	{ NULL,          NULL ,       0}
+    { "open" ,       ROREG_FUNC(l_adc_open)},
+    { "read" ,       ROREG_FUNC(l_adc_read)},
+    { "close" ,      ROREG_FUNC(l_adc_close)},
+	{ NULL,          ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_adc( lua_State *L ) {
-    luat_newlib(L, reg_adc);
+    luat_newlib2(L, reg_adc);
     return 1;
 }

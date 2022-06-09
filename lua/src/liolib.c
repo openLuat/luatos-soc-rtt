@@ -1,7 +1,8 @@
 /*
-** $Id: liolib.c,v 2.151.1.1 2017/04/19 17:29:57 roberto Exp $
-** Standard I/O (and system) library
-** See Copyright Notice in lua.h
+@module  io
+@summary io操作(扩展)
+@version 1.0
+@date    2020.07.03
 */
 
 #define liolib_c
@@ -148,6 +149,9 @@ typedef luaL_Stream LStream;
 #define isclosed(p)	((p)->closef == NULL)
 
 #include "luat_fs.h"
+#define LUAT_LOG_TAG "io"
+#include "luat_log.h"
+
 #undef fopen
 #undef fclose
 #undef fread
@@ -737,6 +741,14 @@ static int f_flush (lua_State *L) {
 
 #include "luat_malloc.h"
 
+/*
+判断文件是否存在
+@api io.exists(path)
+@string 文件路径
+@return bool 存在返回true,否则返回false
+@usage
+log.info("io", "file exists", io.exists("/boottime")) 
+ */
 static int io_exists (lua_State *L) {
   const char *filename = luaL_checkstring(L, 1);
   FILE* f = fopen(filename, "r");
@@ -746,20 +758,39 @@ static int io_exists (lua_State *L) {
   return 1;
 }
 
+/*
+获取文件大小
+@api io.fileSize(path)
+@string 文件路径
+@return int 文件数据,若文件不存在会返回nil
+@usage
+local fsize = io.fileSize("/bootime")
+if fsize and fsize > 1024 then
+  log.info("io", "file size", fsize)
+end
+ */
 static int io_fileSize (lua_State *L) {
   const char *filename = luaL_checkstring(L, 1);
   FILE* f = fopen(filename, "rb");
-  if(f == NULL)
-    return 0;
-  int r = fseek(f, 0, SEEK_END);
-  if(r != 0)
-    return 0;
-  lua_pushinteger(L,ftell(f));
-  fseek(f, 0, SEEK_SET);
-  fclose(f);
+  if(f == NULL) {
+    lua_pushinteger(L, 0); 
+  }
+  else {
+    fseek(f, 0, SEEK_END);
+    lua_pushinteger(L,ftell(f));
+    fclose(f);
+  }
   return 1;
 }
 
+/**
+读取整个文件,请注意内存消耗
+@api io.readFile(path)
+@string 文件路径
+@return string 文件数据,若文件不存在会返回nil
+@usage
+local data = io.readFile("/bootime")
+ */
 static int io_readFile (lua_State *L) {
   const char *filename = luaL_checkstring(L, 1);
   const char *mode = luaL_optstring(L, 2, "rb");
@@ -774,18 +805,27 @@ static int io_readFile (lua_State *L) {
   int len = ftell(f);
   fseek(f, 0, SEEK_SET);
   char* buff = (char*)luat_heap_malloc(len);
-  int read = fread(buff, 1, len, f);
+  fread(buff, 1, len, f);
   fclose(f);
-  lua_pushlstring(L, buff,len);
+  lua_pushlstring(L, buff, len);
   luat_heap_free(buff);
   return 1;
 }
 
+/**
+将数据写入文件
+@api io.writeFile(path, data)
+@string 文件路径
+@string 数据
+@return boolean 成功返回true, 否则返回false
+@usage
+io.writeFile("/bootime", "1")
+ */
 static int io_writeFile (lua_State *L) {
   const char *filename = luaL_checkstring(L, 1);
   size_t len;
   const char *data = luaL_checklstring(L, 2, &len);
-  const char *mode = luaL_optstring(L, 3, "w+");
+  const char *mode = luaL_optstring(L, 3, "wb+");
   FILE* f = fopen(filename, mode);
   if(f == NULL)
     return 0;
@@ -803,7 +843,8 @@ static int io_writeFile (lua_State *L) {
 @userdata zbuff实体
 @int 写入的位置,默认是0
 @int 写入的长度,默认是zbuff的len减去offset
-@return 成功返回true,否则返回false
+@return boolean 成功返回true,否则返回false
+@return int 返回实际读取到的长度，如果小于0也说明是读取失败了
 @usage
 local buff = zbuff.create(1024)
 local f = io.open("/sd/test.txt")
@@ -840,33 +881,46 @@ static int f_fill(lua_State *L) {
   }
   len = fread(buff->addr + offset, 1, len, f);
   lua_pushboolean(L, len >= 0 ? 1 : 0);
-  return 1;
+  lua_pushinteger(L, len);
+  return 2;
 }
 #endif
+
+static int io_mkfs (lua_State *L);
+static int io_mkdir (lua_State *L);
+static int io_rmdir (lua_State *L);
+static int io_lsdir (lua_State *L);
 
 /*
 ** functions for 'io' library
 */
-#include "rotable.h"
-static const rotable_Reg iolib[] = {
+#include "rotable2.h"
+static const rotable_Reg_t iolib[] = {
   // {"close", io_close,  0},
   // {"flush", io_flush,  0},
   // {"input", io_input,  0},
   // {"lines", io_lines,  0},
-  {"open", io_open,    0},
+  {"open", ROREG_FUNC(io_open)},
   // {"output", io_output,0},
 #ifdef LUA_USE_WINDOWS
-  {"popen", io_popen,  0},
+  {"popen", ROREG_FUNC(io_popen)},
 #endif
   // {"read", io_read,    0},
   // {"tmpfile", io_tmpfile, 0},
-  {"type", io_type,    0},
+  {"type", ROREG_FUNC(io_type)},
   // {"write", io_write,  0},
-  {"exists", io_exists,  0},
-  {"fileSize", io_fileSize,  0},
-  {"readFile", io_readFile,  0},
-  {"writeFile", io_writeFile,  0},
-  {NULL, NULL,         0}
+  {"exists", ROREG_FUNC(io_exists)},
+  {"fileSize", ROREG_FUNC(io_fileSize)},
+  {"readFile", ROREG_FUNC(io_readFile)},
+  {"writeFile", ROREG_FUNC(io_writeFile)},
+  {"mkdir",     ROREG_FUNC(io_mkdir)},
+  {"rmdir",     ROREG_FUNC(io_rmdir)},
+  {"lsdir",     ROREG_FUNC(io_lsdir)},
+  {"mkfs",      ROREG_FUNC(io_mkfs)},
+
+  {"FILE",      ROREG_INT(0)},
+  {"DIR",       ROREG_INT(1)},
+  {NULL, ROREG_INT(0) }
 };
 
 
@@ -949,7 +1003,7 @@ static void createmeta (lua_State *L) {
 
 
 LUAMOD_API int luaopen_io (lua_State *L) {
-  luat_newlib(L, iolib);  /* new module */
+  luat_newlib2(L, iolib);  /* new module */
   createmeta(L);
   /* create (and set) default files */
   //createstdfile(L, stdin, IO_INPUT, "stdin");
@@ -958,3 +1012,80 @@ LUAMOD_API int luaopen_io (lua_State *L) {
   return 1;
 }
 
+// dir methods
+
+static int io_mkfs (lua_State *L) {
+  luat_fs_conf_t conf = {0};
+  conf.mount_point = (char*)luaL_checkstring(L, 1);
+  int ret = luat_fs_mkfs(&conf);
+  lua_pushboolean(L, ret == 0 ? 1 : 0);
+  lua_pushinteger(L, ret);
+  return 2;
+}
+
+static int io_mkdir (lua_State *L) {
+  const char* path = luaL_checkstring(L, 1);
+  int ret = luat_fs_mkdir(path);
+  lua_pushboolean(L, ret == 0 ? 1 : 0);
+  lua_pushinteger(L, ret);
+  return 2;
+}
+
+static int io_rmdir (lua_State *L) {
+  const char* path = luaL_checkstring(L, 1);
+  int ret = luat_fs_rmdir(path);
+  lua_pushboolean(L, ret == 0 ? 1 : 0);
+  lua_pushinteger(L, ret);
+  return 2;
+}
+
+static int io_lsdir (lua_State *L) {
+  const char* path = luaL_checkstring(L, 1);
+  int len = luaL_optinteger(L, 2, 10);
+  int offset = luaL_optinteger(L, 3, 0);
+
+  if (len < 0) {
+    len = 10;
+  } else if (len > 50) {
+    len = 50;
+  }
+  if (offset < 0)
+    offset = 0;
+
+  luat_fs_dirent_t* ents = luat_heap_malloc(sizeof(luat_fs_dirent_t) * len);
+  if (ents == NULL) {
+    LLOGE("out of memory when malloc luat_fs_dirent_t");
+    return 0;
+  }
+  int ret = luat_fs_lsdir(path, ents, offset, len);
+  if (ret == 0) {
+    luat_heap_free(ents);
+    lua_pushboolean(L, 1);
+    lua_newtable(L);
+    return 2;
+  }
+  else if (ret > 0) {
+    lua_pushboolean(L, 1);
+    lua_createtable(L, ret, 0);
+    
+    for (size_t i = 0; i < ret; i++)
+    {
+      lua_createtable(L, 0, 2);
+      lua_pushinteger(L, ents[i].d_type);
+      lua_setfield(L, -2, "type");
+      lua_pushstring(L, ents[i].d_name);
+      lua_setfield(L, -2, "name");
+      lua_seti(L, -2, i + 1);
+    }
+    luat_heap_free(ents);
+    return 2;
+  }
+  else {
+    luat_heap_free(ents);
+    lua_pushboolean(L, 0);
+    lua_pushinteger(L, ret);
+    return 2;
+  }
+
+  return 0;
+}

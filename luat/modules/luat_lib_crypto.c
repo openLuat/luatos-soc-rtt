@@ -4,9 +4,14 @@
 @summary 加解密和hash函数
 @version 1.0
 @date    2020.07.03
+@demo crypto
 */
 #include "luat_base.h"
 #include "luat_crypto.h"
+#include "luat_malloc.h"
+#include "luat_str.h"
+#include <time.h>
+#include "luat_zbuff.h"
 
 #define LUAT_LOG_TAG "crypto"
 #include "luat_log.h"
@@ -155,6 +160,13 @@ static int l_crypto_hmac_sha256(lua_State *L) {
     const char* key = luaL_checklstring(L, 2, &key_size);
     char tmp[64] = {0};
     char dst[64] = {0};
+
+    if (key_size > 64) {
+        luat_crypto_sha256_simple(key, key_size, dst);
+        key = (const char*)dst;
+        key_size = 64;
+    }
+
     if (luat_crypto_hmac_sha256_simple(str, str_size, key, key_size, tmp) == 0) {
         fixhex(tmp, dst, 32);
         lua_pushlstring(L, dst, 64);
@@ -204,6 +216,13 @@ static int l_crypto_hmac_sha512(lua_State *L) {
     const char* key = luaL_checklstring(L, 2, &key_size);
     char tmp[128] = {0};
     char dst[128] = {0};
+
+    if (key_size > 128) {
+        luat_crypto_sha512_simple(key, key_size, dst);
+        key = (const char*)dst;
+        key_size = 128;
+    }
+
     if (luat_crypto_hmac_sha512_simple(str, str_size, key, key_size, tmp) == 0) {
         fixhex(tmp, dst, 64);
         lua_pushlstring(L, dst, 128);
@@ -270,16 +289,23 @@ local crc = crypto.crc16("")
  */
 static int l_crypto_crc16(lua_State *L)
 {   
-    size_t inputLen;
+    size_t inputlen;
+    const unsigned char *inputData;
     const char  *inputmethod = (const char*)luaL_checkstring(L, 1);
-    const unsigned char *inputData = (const unsigned char*)lua_tolstring(L,2,&inputLen);
+    if(lua_isuserdata(L, 2))
+    {
+        luat_zbuff_t *buff = ((luat_zbuff_t *)luaL_checkudata(L, 2, LUAT_ZBUFF_TYPE));
+        inputlen = buff->len - buff->cursor;
+        inputData = (const unsigned char *)(buff->addr + buff->cursor);
+    }else{
+        inputData = (const unsigned char*)lua_tolstring(L,2,&inputlen);
+    }
     uint16_t poly = luaL_optnumber(L,3,0x0000);
     uint16_t initial = luaL_optnumber(L,4,0x0000);
     uint16_t finally = luaL_optnumber(L,5,0x0000);
     uint8_t inReverse = luaL_optnumber(L,6,0);
     uint8_t outReverse = luaL_optnumber(L,7,0);
-   
-    lua_pushinteger(L, calcCRC16(inputData, inputmethod,inputLen,poly,initial,finally,inReverse,outReverse));
+    lua_pushinteger(L, calcCRC16(inputData, inputmethod,inputlen,poly,initial,finally,inReverse,outReverse));
     return 1;
 }
 
@@ -323,17 +349,81 @@ static int l_crypto_crc32(lua_State *L)
 计算crc8值
 @api crypto.crc8(data)
 @string 数据
+@int crc多项式，可选，如果不写，将忽略除了数据外所有参数
+@int crc初始值，可选，默认0
+@boolean 是否需要逆序处理，默认否
 @return int 对应的CRC8值
 @usage
 -- 计算CRC8
 local crc = crypto.crc8(data)
+local crc = crypto.crc8(data, 0x31, 0xff, false)
  */
 static int l_crypto_crc8(lua_State *L)
 {
     size_t len = 0;
     const unsigned char *inputData = (const unsigned char*)luaL_checklstring(L, 1, &len);
+    if (!lua_isinteger(L, 2)) {
+        lua_pushinteger(L, calcCRC8(inputData, len));
+    } else {
+    	uint8_t poly = lua_tointeger(L, 2);
+    	uint8_t start = luaL_optinteger(L, 3, 0);
+    	uint8_t is_rev = 0;
+    	if (lua_isboolean(L, 4)) {
+    		is_rev = lua_toboolean(L, 4);
+    	}
+    	uint8_t i;
+    	uint8_t CRC8 = start;
+		uint8_t *Src = (uint8_t *)inputData;
+		if (is_rev)
+		{
+			poly = 0;
+			for (i = 0; i < 8; i++)
+			{
+				if (start & (1 << (7 - i)))
+				{
+					poly |= 1 << i;
+				}
+			}
+			while (len--)
+			{
 
-    lua_pushinteger(L, calcCRC8(inputData, len));
+				CRC8 ^= *Src++;
+				for (i = 0; i < 8; i++)
+				{
+					if ((CRC8 & 0x01))
+					{
+						CRC8 >>= 1;
+						CRC8 ^= poly;
+					}
+					else
+					{
+						CRC8 >>= 1;
+					}
+				}
+			}
+		}
+		else
+		{
+			while (len--)
+			{
+
+				CRC8 ^= *Src++;
+				for (i = 8; i > 0; --i)
+				{
+					if ((CRC8 & 0x80))
+					{
+						CRC8 <<= 1;
+						CRC8 ^= poly;
+					}
+					else
+					{
+						CRC8 <<= 1;
+					}
+				}
+			}
+		}
+		lua_pushinteger(L, CRC8);
+    }
     return 1;
 }
 
@@ -364,35 +454,73 @@ static int l_crypto_trng(lua_State *L) {
     return 0;
 }
 
-#include "rotable.h"
-static const rotable_Reg reg_crypto[] =
+/**
+计算TOTP动态密码的结果
+@api crypto.totp(secret,time)
+@string 网站提供的密钥（就是BASE32编码后的结果）
+@int 可选，时间戳，默认当前时间
+@return int 计算得出的六位数结果 计算失败返回nil
+@usage
+--使用当前系统时间计算
+local otp = crypto.totp("asdfassdfasdfass")
+ */
+static int l_crypto_totp(lua_State *L) {
+    size_t len = 0;
+    const char* secret_base32 = luaL_checklstring(L,1,&len);
+
+    char * secret = (char *)luat_heap_malloc(len+1);
+    len = (size_t)luat_str_base32_decode((const uint8_t * )secret_base32,(uint8_t*)secret,len+1);
+
+    uint64_t t = (uint64_t)(luaL_optinteger(L,2,(lua_Integer)time(NULL))/30);
+    uint8_t data[sizeof(t)] = {0};
+    for(int i=0;i<sizeof(t);i++)
+        data[sizeof(t)-1-i] = *(((uint8_t*)&t)+i);
+    uint8_t hmac[20] = {0};
+    if(luat_crypto_hmac_sha1_simple((const char *)data, sizeof(data), (const char *)secret, len, hmac) == 0)
+    {
+        uint8_t offset = hmac[19] & 0x0f;
+        uint32_t r = (
+                        ((uint32_t)((hmac[offset + 0] & 0x7f)) << 24) |
+                        ((uint32_t)((hmac[offset + 1] & 0xff)) << 16) |
+                        ((uint32_t)((hmac[offset + 2] & 0xff)) << 8) |
+                        ((uint32_t)(hmac[offset + 3] & 0xff))
+                    ) % 1000000;
+        lua_pushinteger(L,r);
+        return 1;
+    }
+    return 0;
+}
+
+#include "rotable2.h"
+static const rotable_Reg_t reg_crypto[] =
 {
-    { "md5" ,           l_crypto_md5            ,0},
-    { "sha1" ,          l_crypto_sha1           ,0},
-    { "sha256" ,        l_crypto_sha256         ,0},
-    { "sha512" ,        l_crypto_sha512         ,0},
-    { "hmac_md5" ,      l_crypto_hmac_md5       ,0},
-    { "hmac_sha1" ,     l_crypto_hmac_sha1      ,0},
-    { "hmac_sha256" ,   l_crypto_hmac_sha256    ,0},
-    { "hmac_sha512" ,   l_crypto_hmac_sha512    ,0},
-    { "cipher" ,        l_crypto_cipher_encrypt ,0},
-    { "cipher_encrypt" ,l_crypto_cipher_encrypt ,0},
-    { "cipher_decrypt" ,l_crypto_cipher_decrypt ,0},
-    { "crc16",          l_crypto_crc16          ,0},
-    { "crc16_modbus",   l_crypto_crc16_modbus   ,0},
-    { "crc32",          l_crypto_crc32          ,0},
-    { "crc8",           l_crypto_crc8           ,0},
-    { "trng",           l_crypto_trng           ,0},
-	{ NULL,             NULL                    ,0}
+    { "md5" ,           ROREG_FUNC(l_crypto_md5            )},
+    { "sha1" ,          ROREG_FUNC(l_crypto_sha1           )},
+    { "sha256" ,        ROREG_FUNC(l_crypto_sha256         )},
+    { "sha512" ,        ROREG_FUNC(l_crypto_sha512         )},
+    { "hmac_md5" ,      ROREG_FUNC(l_crypto_hmac_md5       )},
+    { "hmac_sha1" ,     ROREG_FUNC(l_crypto_hmac_sha1      )},
+    { "hmac_sha256" ,   ROREG_FUNC(l_crypto_hmac_sha256    )},
+    { "hmac_sha512" ,   ROREG_FUNC(l_crypto_hmac_sha512    )},
+    { "cipher" ,        ROREG_FUNC(l_crypto_cipher_encrypt )},
+    { "cipher_encrypt" ,ROREG_FUNC(l_crypto_cipher_encrypt )},
+    { "cipher_decrypt" ,ROREG_FUNC(l_crypto_cipher_decrypt )},
+    { "crc16",          ROREG_FUNC(l_crypto_crc16          )},
+    { "crc16_modbus",   ROREG_FUNC(l_crypto_crc16_modbus   )},
+    { "crc32",          ROREG_FUNC(l_crypto_crc32          )},
+    { "crc8",           ROREG_FUNC(l_crypto_crc8           )},
+    { "trng",           ROREG_FUNC(l_crypto_trng           )},
+    { "totp",           ROREG_FUNC(l_crypto_totp           )},
+	{ NULL,             ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_crypto( lua_State *L ) {
-    luat_newlib(L, reg_crypto);
+    luat_newlib2(L, reg_crypto);
     return 1;
 }
 
 // 添加几个默认实现
-
+#ifndef LUAT_COMPILER_NOWEAK
 LUAT_WEAK int luat_crypto_md5_simple(const char* str, size_t str_size, void* out_ptr) {return -1;}
 LUAT_WEAK int luat_crypto_hmac_md5_simple(const char* str, size_t str_size, const char* mac, size_t mac_size, void* out_ptr) {return -1;}
 
@@ -404,8 +532,10 @@ LUAT_WEAK int luat_crypto_hmac_sha256_simple(const char* str, size_t str_size, c
 
 LUAT_WEAK int luat_crypto_sha512_simple(const char* str, size_t str_size, void* out_ptr) {return -1;}
 LUAT_WEAK int luat_crypto_hmac_sha512_simple(const char* str, size_t str_size, const char* mac, size_t mac_size, void* out_ptr) {return -1;}
-
+LUAT_WEAK int l_crypto_cipher_xxx(lua_State *L, uint8_t flags) {return 0;}
 LUAT_WEAK int luat_crypto_trng(char* buff, size_t len) {
     memset(buff, 0, len);
     return 0;
 }
+
+#endif

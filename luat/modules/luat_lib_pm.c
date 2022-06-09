@@ -4,6 +4,7 @@
 @summary 电源管理
 @version 1.0
 @date    2020.07.02
+@demo pm
 */
 #include "lua.h"
 #include "lauxlib.h"
@@ -16,10 +17,17 @@
 /**
 请求进入指定的休眠模式
 @api pm.request(mode)
-@int 休眠模式,例如pm.IDLE/LIGHT/DEEP/HIB
+@int 休眠模式,例如pm.IDLE/LIGHT/DEEP/HIB.
 @return boolean 处理结果,即使返回成功,也不一定会进入, 也不会马上进入
 @usage
 -- 请求进入休眠模式
+--[[
+IDLE   正常运行,就是无休眠
+LIGHT  轻休眠, CPU停止, RAM保持, 外设保持, 可中断唤醒. 部分型号支持从休眠处继续运行
+DEEP   深休眠, CPU停止, RAM掉电, 仅特殊引脚保持的休眠前的电平, 大部分管脚不能唤醒设备.
+HIB    彻底休眠, CPU停止, RAM掉电, 仅复位/特殊唤醒管脚可唤醒设备.
+]]
+
 pm.request(pm.HIB)
  */
 static int l_pm_request(lua_State *L) {
@@ -176,7 +184,7 @@ static int l_pm_force(lua_State *L) {
 }
 
 /**
-检查休眠状态
+检查休眠状态,仅air302适用.
 @api pm.check()
 @return boolean 处理结果,如果能顺利进入休眠,返回true,否则返回false
 @return int 底层返回值,0代表能进入最底层休眠,其他值代表最低可休眠级别
@@ -223,28 +231,28 @@ static int l_pm_check(lua_State *L) {
 //     }
 // }
 
-#include "rotable.h"
-static const rotable_Reg reg_pm[] =
+#include "rotable2.h"
+static const rotable_Reg_t reg_pm[] =
 {
-    { "request" ,       l_pm_request , 0},
-    // { "release" ,       l_pm_release,  0},
-    { "dtimerStart",    l_pm_dtimer_start,0},
-    { "dtimerStop" ,    l_pm_dtimer_stop, 0},
-	{ "dtimerCheck" ,   l_pm_dtimer_check, 0},
-    { "dtimerList",     l_pm_dtimer_list, 0 },
-    { "dtimerWkId",     l_pm_dtimer_wakeup_id, 0},
-    //{ "on",             l_pm_on,   0},
-    { "force",          l_pm_force, 0},
-    { "check",          l_pm_check, 0},
-    { "lastReson",      l_pm_last_reson, 0},
-    { "IDLE",           NULL, LUAT_PM_SLEEP_MODE_IDLE},
-    { "LIGHT",          NULL, LUAT_PM_SLEEP_MODE_LIGHT},
-    { "DEEP",           NULL, LUAT_PM_SLEEP_MODE_DEEP},
-    { "HIB",            NULL, LUAT_PM_SLEEP_MODE_STANDBY},
-	{ NULL,          NULL ,       0}
+    { "request" ,       ROREG_FUNC(l_pm_request )},
+    // { "release" ,    ROREG_FUNC(   l_pm_release)},
+    { "dtimerStart",    ROREG_FUNC(l_pm_dtimer_start)},
+    { "dtimerStop" ,    ROREG_FUNC(l_pm_dtimer_stop)},
+	{ "dtimerCheck" ,   ROREG_FUNC(l_pm_dtimer_check)},
+    { "dtimerList",     ROREG_FUNC(l_pm_dtimer_list)},
+    { "dtimerWkId",     ROREG_FUNC(l_pm_dtimer_wakeup_id)},
+    //{ "on",           ROREG_FUNC(l_pm_on)},
+    { "force",          ROREG_FUNC(l_pm_force)},
+    { "check",          ROREG_FUNC(l_pm_check)},
+    { "lastReson",      ROREG_FUNC(l_pm_last_reson)},
+    { "IDLE",           ROREG_INT(LUAT_PM_SLEEP_MODE_IDLE)},
+    { "LIGHT",          ROREG_INT(LUAT_PM_SLEEP_MODE_LIGHT)},
+    { "DEEP",           ROREG_INT(LUAT_PM_SLEEP_MODE_DEEP)},
+    { "HIB",            ROREG_INT(LUAT_PM_SLEEP_MODE_STANDBY)},
+	{ NULL,             ROREG_INT(0) }
 };
 
 LUAMOD_API int luaopen_pm( lua_State *L ) {
-    luat_newlib(L, reg_pm);
+    luat_newlib2(L, reg_pm);
     return 1;
 }

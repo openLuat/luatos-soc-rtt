@@ -49,12 +49,21 @@ int luat_fs_remove(const char *filename);
 int luat_fs_rename(const char *old_filename, const char *new_filename);
 size_t luat_fs_fsize(const char *filename);
 int luat_fs_fexist(const char *filename);
+int luat_fs_readline(char * buf, int bufsize, FILE * stream);
 
 // TODO 文件夹相关的API
 //int luat_fs_diropen(char const* _FileName);
 
+typedef struct luat_fs_dirent
+{
+    unsigned char d_type;
+    char d_name[255];
+}luat_fs_dirent_t;
+
+
 int luat_fs_mkdir(char const* _DirName);
 int luat_fs_rmdir(char const* _DirName);
+int luat_fs_lsdir(char const* _DirName, luat_fs_dirent_t* ents, size_t offset, size_t len);
 
 
 #ifdef LUAT_USE_FS_VFS
@@ -96,6 +105,7 @@ struct luat_vfs_filesystem_opts {
 
     int (*mkdir)(void* fsdata, char const* _DirName);
     int (*rmdir)(void* fsdata, char const* _DirName);
+    int (*lsdir)(void* fsdata, char const* _DirName, luat_fs_dirent_t* ents, size_t offset, size_t len);
 };
 
 typedef struct luat_vfs_filesystem {

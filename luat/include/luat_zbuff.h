@@ -9,13 +9,25 @@
 #define ZBUFF_SEEK_SET 0
 #define ZBUFF_SEEK_CUR 1
 #define ZBUFF_SEEK_END 2
+
+#if defined ( __CC_ARM )
+#pragma anon_unions
+#endif
+
 typedef struct luat_zbuff {
     uint8_t* addr;      //数据存储的地址
-    size_t len;       //数据的长度
-    size_t cursor;    //目前的指针位置
+    size_t len;       //实际分配空间的长度
+    union {
+    	size_t cursor;    //目前的指针位置，表明了处理了多少数据
+    	size_t used;	//已经保存的数据量，表明了存了多少数据
+    };
+
     uint32_t width; //宽度
     uint32_t height;//高度
     uint8_t bit;    //色深度
 } luat_zbuff_t;
+
+
+int __zbuff_resize(luat_zbuff_t *buff, uint32_t new_size);
 
 #endif
